@@ -46,9 +46,16 @@ Wirtschaft
   Frachter: bis Exotisch), mit 8 % Luxus-Wünschen darüber. Seltene Funde lohnen
   sich dadurch erst mit besseren Kunden, ohne frühe Glücksfunde wertlos zu machen.
 - Mehr Verkaufsgebäude desselben Typs teilen sich die Kundschaft (abnehmender
-  Ertrag 15 %/12 %/10 %/8 %/6 % je weiterem Gebäude); Alien-Wege erhöhen den Zulauf.
-- Verkaufsgebäude-Kosten wie im Prompt (5 Tsd / 60 Tsd / 750 Tsd / 12 Mio / 200 Mio):
-  Frachterdock und Handelsterminal sind damit Ziele der späteren Planeten.
+  Ertrag 15 %/10 %/8 %/6 %/5 % je weiterem Gebäude); Alien-Wege und Upgrades
+  (+25 % Kundenzulauf je Stufe) erhöhen den Zulauf.
+- Verkaufsgebäude-Kosten: Basar 30, Karawanenhof 5 Tsd, Landepad 50 Tsd,
+  Orbitalhafen 250 Tsd, Frachterdock 2,5 Mio, Handelsterminal 25 Mio. Auf Planet 1
+  (Schwelle 1 Mio) reicht es bis zum Orbitalhafen; Dock und Terminal sind die Ziele
+  von Planet 2 (Schwelle 20 Mio) und danach.
+- Kunden-Takt und Mengen gegenüber den Startwerten gestreckt (Basar alle 10–17 s,
+  Karawane 36–58 s/10–26 Stück, Shuttle 80–115 s/30–80, Handelsschiff 120–180 s/150–360,
+  Frachter 240–360 s/700–1700, Verträge unverändert), damit die Zielzeiten passen.
+- Start: 100 ET reichen für Basar (30) + Extraktor (40) + 15 Bandfelder (je 2).
 - Offline: Erwartungswert-Modell in bis zu 480 Schritten über die echten
   Förderketten (Engpass-Skalierung geteilter Bänder), Durchschnittspreis, keine Events.
 - Kunden-Trinkgeld (6 %): kleine Münze am Verkaufsgebäude, Einsammeln per Tippen,
@@ -652,8 +659,8 @@ const CONFIG = {
   patience: [20, 60],
   wishMaxTier: [1, 2, 3, 4, 6, 7],   // highest resource tier a customer tier usually asks for
   luxuryChance: 0.08,                // chance that a customer asks for something above its usual range
-  crowding: [0.15, 0.12, 0.10, 0.08, 0.06],
-  sellerLevelArrival: 1.2,           // customer arrival multiplier per seller level // arrival rate per seller / (1 + c * (sellers of that type - 1))
+  crowding: [0.15, 0.10, 0.08, 0.06, 0.05], // arrival rate per seller / (1 + c * (sellers of that type - 1))
+  sellerLevelArrival: 1.25,          // customer arrival multiplier per seller level
   satisfiedBonus: 0.10,
   pathBonusPerTile: 0.03, pathBonusMax: 0.6, pathRadius: 9,
   contractSlots: 3, contractDuration: 25 * 60,
@@ -1180,9 +1187,9 @@ DATA.BUILDINGS = {
     desc: 'Vorbeilaufende Alien-Wanderer kaufen hier ein. Alien-Wege in der Nähe locken mehr Kunden an.' },
   caravan: { name: 'Karawanenhof', cat: 'sell', w: 4, h: 4, cost: 5000, color: '#e89a3a', tier: 1,
     desc: 'Händler-Karawanen kaufen größere Mengen (Erlös ×1,5).' },
-  shuttlepad: { name: 'Shuttle-Landepad', cat: 'sell', w: 5, h: 5, cost: 60000, color: '#e0609a', tier: 2,
+  shuttlepad: { name: 'Shuttle-Landepad', cat: 'sell', w: 5, h: 5, cost: 50000, color: '#e0609a', tier: 2,
     desc: 'Shuttles landen und kaufen in großen Mengen (Erlös ×2,5).' },
-  port: { name: 'Orbitalhafen', cat: 'sell', w: 7, h: 7, cost: 300000, color: '#d84fc0', tier: 3,
+  port: { name: 'Orbitalhafen', cat: 'sell', w: 7, h: 7, cost: 250000, color: '#d84fc0', tier: 3,
     desc: 'Kleine Handelsschiffe docken an (Erlös ×4).' },
   dock: { name: 'Frachterdock', cat: 'sell', w: 9, h: 9, cost: 2500000, color: '#b44fe0', tier: 4,
     desc: 'Große Frachter kaufen riesige Mengen (Erlös ×8).' },
@@ -5261,20 +5268,6 @@ const Render = {
       }
     }
     return night;
-  },
-  // Vignette for depth.
-  drawVignette(ctx) {
-    const d = App.view.dpr, W = App.view.w * d, H = App.view.h * d;
-    if (!Render.vig || Render.vig.w !== W || Render.vig.h !== H) {
-      const c = document.createElement('canvas'); c.width = 256; c.height = 256;
-      const x = c.getContext('2d');
-      const gr = x.createRadialGradient(128, 128, 60, 128, 128, 182);
-      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.38)');
-      x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
-      Render.vig = { c, w: W, h: H };
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(Render.vig.c, 0, 0, W, H);
   }
 };
 

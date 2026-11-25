@@ -87,8 +87,8 @@ const CONFIG = {
   patience: [20, 60],
   wishMaxTier: [1, 2, 3, 4, 6, 7],   // highest resource tier a customer tier usually asks for
   luxuryChance: 0.08,                // chance that a customer asks for something above its usual range
-  crowding: [0.15, 0.12, 0.10, 0.08, 0.06],
-  sellerLevelArrival: 1.2,           // customer arrival multiplier per seller level // arrival rate per seller / (1 + c * (sellers of that type - 1))
+  crowding: [0.15, 0.10, 0.08, 0.06, 0.05], // arrival rate per seller / (1 + c * (sellers of that type - 1))
+  sellerLevelArrival: 1.25,          // customer arrival multiplier per seller level
   satisfiedBonus: 0.10,
   pathBonusPerTile: 0.03, pathBonusMax: 0.6, pathRadius: 9,
   contractSlots: 3, contractDuration: 25 * 60,

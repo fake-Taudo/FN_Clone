@@ -391,19 +391,5 @@ const Render = {
       }
     }
     return night;
-  },
-  // Vignette for depth.
-  drawVignette(ctx) {
-    const d = App.view.dpr, W = App.view.w * d, H = App.view.h * d;
-    if (!Render.vig || Render.vig.w !== W || Render.vig.h !== H) {
-      const c = document.createElement('canvas'); c.width = 256; c.height = 256;
-      const x = c.getContext('2d');
-      const gr = x.createRadialGradient(128, 128, 60, 128, 128, 182);
-      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.38)');
-      x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
-      Render.vig = { c, w: W, h: H };
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(Render.vig.c, 0, 0, W, H);
   }
 };
