@@ -357,7 +357,7 @@ textarea.io { width: 100%; min-height: 120px; border-radius: 12px; background: #
   .logo { width: 36px; height: 36px; }
   .logo-mark { width: 28px; height: 28px; }
   .tier-badge .bar { width: 72px; }
-  #banners { top: calc(66px + var(--sat)); width: calc(100% - 24px); }
+  #banners { top: calc(66px + var(--sat)); left: calc(10px + var(--sal)); transform: none; align-items: flex-start; width: calc(100% - var(--mm) - 44px - var(--sal) - var(--sar)); }
   .banner { font-size: 13px; padding: 6px 10px; }
   #toasts { top: calc(78px + var(--sat)); left: calc(10px + var(--sal)); transform: none; width: calc(100% - 150px - var(--sal) - var(--sar)); align-items: flex-start; }
   .toast { font-size: 13px; padding: 7px 10px; text-align: left; }
@@ -411,3 +411,4 @@ textarea.io { width: 100%; min-height: 120px; border-radius: 12px; background: #
 .bump { animation: bump 260ms cubic-bezier(.34,1.56,.64,1); }
 @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); } }
 #money { display: inline-block; transform-origin: left center; }
+#money { white-space: nowrap; }

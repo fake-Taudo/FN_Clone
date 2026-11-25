@@ -25,7 +25,7 @@ const FX = {
       }
     }
   },
-  drawPlanet(ctx, cx, cy, r, planet, t, o) { PlanetArt.draw(ctx, cx, cy, r, planet, t, o); },
+  drawPlanet(ctx, cx, cy, r, planet, t, o) { PlanetArt.draw(ctx, cx, cy, r, planet, t, o || { async: true }); },
 
   // ---------------- title screen ----------------
   titleLoop: null,

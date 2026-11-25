@@ -78,7 +78,7 @@ const HTML = 'file://' + path.join(__dirname, '..', 'index.html');
         }
       }
       pairs.sort((p, q) => p.score - q.score);
-      out.sizes[S] = { pairs: pairs.length, failing: pairs.filter(p => p.score < 1).length, worst: pairs.slice(0, 8) };
+      out.sizes[S] = { pairs: pairs.length, failing: pairs.filter(p => p.score < 1).length, worst: pairs.slice(0, 8), failingPairs: pairs.filter(p => p.score < 1) };
     }
     // ---- contrast vs the 8 planet grounds (object colour or its outline must reach 3:1) ----
     for (let k = 1; k <= 8; k++) {
@@ -90,7 +90,9 @@ const HTML = 'file://' + path.join(__dirname, '..', 'index.html');
         const ring = ItemArt.ringColor(ItemArt.spec(R.id));
         for (const gnd of P.ground) {
           const lg = relLum(gnd);
-          const c = Math.max(contrast(relLum(f.hex), lg), contrast(relLum(ring), lg));
+          // halo (70 %) outside every outline: light around dark outlines, dark around light ones
+          const halo = Col.mix(gnd, ring === '#c8d2eb' ? '#0c0a12' : '#fff4e2', 0.7);
+          const c = Math.max(contrast(relLum(f.hex), lg), contrast(relLum(ring), lg), contrast(relLum(halo), lg));
           if (c < minC) minC = c;
           if (c < 3) fails.push(R.name + ' auf ' + gnd + ' (' + c.toFixed(2) + ')');
         }

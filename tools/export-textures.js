@@ -138,6 +138,27 @@ const HTML = 'file://' + path.join(__dirname, '..', 'index.html');
       save('figuren/' + shipNames[t] + '_landesequenz.png', seq);
     }
     save('figuren/sprechblase.png', charC(3, 2, x => CharArt.bubble(x, 0, -0.6, { wishes: [{ res: 30, ref: 1, qty: 12, got: 4 }], t: 10, patience: 40, buying: 0.3, _bubAt: 1 }, 0), 0.6));
+    // ---- animation frame sampling ----
+    {
+      const strip = (n, w, h, f, oy = h - 0.6) => { const c = canvas(n * w * PX, h * PX), x = c.getContext('2d'); for (let i = 0; i < n; i++) { x.setTransform(PX, 0, 0, PX, (i * w + 0.5) * PX, oy * PX); f(x, i); } return c; };
+      const mkB = (type, extra) => Object.assign({ id: 90001, type, x: 0, y: 0, rot: 0, w: 2, h: 2, level: 1, buf: [], res: 26, tier: 1, made: 1, warn: null, customers: [], shelf: new Map(), store: new Map(), total: 0 }, extra || {});
+      // extractor: off -> spin-up (0.6 s) -> running
+      const ex = mkB('extractor', { _spin: 0, _ang: 0 });
+      save('animation/extraktor_anlauf_7frames.png', strip(7, 3, 3.6, (x, i) => { Render.ox = 0; Render.oy = 0; Draw.dt = i === 0 ? 0 : 0.1; noRandom(() => Draw.building(x, fakeG, ex, 0, 0)); }, 1.4));
+      // placement pop-in (0.9 -> 1.06 -> 1.0 in 220 ms)
+      const sl = mkB('silo', { w: 3, h: 3, outEnabled: true });
+      save('animation/platzieren_pop_6frames.png', strip(6, 4, 5.2, (x, i) => { Render.ox = 0; Render.oy = 0; Draw.dt = 0; sl._pop = App.now - i * 44 - 1; noRandom(() => Draw.building(x, fakeG, sl, 0, 0)); }, 2.0));
+      // upgrade crossfade (stage 3 -> 4, 250 ms) with glow pulse
+      const rf = mkB('refinery1', { w: 3, h: 3, inBuf: [], outBuf: [], cur: null, prog: 0, level: 4, _lv: 4 });
+      save('animation/ausbau_ueberblendung_6frames.png', strip(6, 4, 5, (x, i) => { Render.ox = 0; Render.oy = 0; Draw.dt = 0; rf._xf = { from: 0, at: App.now - i * 50 }; rf._up = App.now - i * 50; noRandom(() => Draw.building(x, fakeG, rf, 0, 0)); }, 1.8));
+      // sale: coin fountain
+      Render.particles.length = 0;
+      const saveRand = Math.random; let seed = 7; Math.random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      Render.coinBurst(0, 0, 14);
+      Math.random = saveRand;
+      save('animation/verkauf_muenzfontaene_6frames.png', strip(6, 3, 3, (x, i) => { if (i) for (let k = 0; k < 3; k++) Render.updateParticles(0.04); Render.ox = -1; Render.oy = -1.6; x.translate(0, -1.2); Render.drawParticles(x); }));
+      Render.particles.length = 0;
+    }
     // ---- effects ----
     for (let t = 0; t < 8; t++) { const c = canvas(128, 128); c.getContext('2d').drawImage(FxLib.tinted('soft', 0, DATA.TIERS[t].color), 0, 0, 128, 128); save('effekte/glow_' + t + '_' + slug(DATA.TIERS[t].name) + '.png', c); }
     for (const [n, col] of [['muenze', '#ffd24a'], ['scanner', '#7fd3ff'], ['triebwerk', '#ffb04a']]) { const c = canvas(128, 128); c.getContext('2d').drawImage(FxLib.tinted('soft', 0, col), 0, 0, 128, 128); save('effekte/glow_' + n + '.png', c); }

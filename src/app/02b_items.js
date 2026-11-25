@@ -23,33 +23,33 @@ const ITEM_SPECS = [
   ['flakes', 0, 'powder', '#2a2a2e'],            // Ascheflocken
   ['rhomb', 1, 'gem', '#b1a184'],                // Dolomit
   ['flakes', 1, 'powder', '#efe6c8'],            // Glimmerschuppen
-  ['powder', 1, 'powder', '#c9c1ad'],            // Kieselgur
+  ['granules', 2, 'powder', '#b8ae96'],          // Kieselgur (diatomite pellets)
   ['slate', 1, 'stone', '#b5703a', '#f0c08a'],   // Sandstein
   ['granules', 0, 'metal', '#8a93a3'],           // Magnetitkörner
   ['sand', 2, 'powder', '#5e7036'],              // Olivinsand
   ['clay', 2, 'powder', '#857356', '#c9b998'],   // Mergel
-  ['powder', 2, 'powder', '#c9c3d6'],            // Talkum
+  ['plates', 1, 'powder', '#c9c3d6'],            // Talkum (soapstone tablets)
   ['powder', 3, 'powder', '#b39a1e'],            // Schwefelstaub
-  ['rock', 5, 'metal', '#9aa3b3'],               // Graphitbrocken
+  ['plates', 2, 'metal', '#9aa3b3'],             // Graphitbrocken (platy graphite)
   ['glass', 0, 'gem', '#6e7fb8'],                // Obsidiansplitter
   // ---- Ungewöhnlich ----
   ['nugget', 0, 'metal', '#f0a66a'],             // Kupfernuggets
-  ['ore', 0, 'metal', '#5a5650', '#dfe6ea'],     // Zinnerz
+  ['ore', 0, 'metal', '#7a8088', '#eef2f6'],     // Zinnerz (light grey host)
   ['cubes', 0, 'metal', '#c6ccd6'],              // Bleiglanz
-  ['ore', 1, 'metal', '#6b5a3a', '#e8c25a'],     // Zinkblende
+  ['crust', 1, 'metal', '#2e2622', '#f0c040', '#e0a030'], // Zinkblende (amber crystals on dark host)
   ['cubes', 1, 'salt', '#ffffff'],               // Steinsalz
   ['cubes', 2, 'salt', '#c86a6a'],               // Kalisalz
-  ['ore', 2, 'metal', '#4f5a4c', '#a7d6a0'],     // Nickelerz
+  ['ore', 2, 'metal', '#3c5a3a', '#7fe08a'],     // Nickelerz (garnierite green)
   ['ore', 3, 'metal', '#7a3418', '#e08a5a'],     // Bauxit
-  ['ore', 4, 'metal', '#1c1e22', '#9aa6b8'],     // Chromit
-  ['nodule', 0, 'stone', '#3a2e25'],             // Manganknollen
+  ['rhomb', 3, 'metal', '#1c1e22', '#9aa6b8'],   // Chromit (octahedral crystals)
+  ['nodule', 0, 'stone', '#8a7a6a', null, '#5a3a5c'], // Manganknollen (purple-black nodules)
   ['cubes', 3, 'metal', '#f7e38a'],              // Pyrit
   ['banded', 0, 'stone', '#145c3a', '#7fe0a8'],  // Malachit
-  ['crust', 0, 'gem', '#6b6660', '#7fa6ff'],     // Azuritkruste
+  ['crust', 0, 'gem', '#4f6296', '#7fa6ff'],     // Azuritkruste (bluish host rock)
   ['needles', 0, 'salt', '#ffffff'],             // Borax
   ['saltcluster', 0, 'salt', '#ffe9c2'],         // Perchloratsalz
   ['plates', 0, 'metal', '#8a8592'],             // Ilmenit
-  ['ore', 5, 'metal', '#3a4456', '#ff9ac8'],     // Kobalterz
+  ['ore', 5, 'metal', '#6a4a62', '#ff9ac8'],     // Kobalterz (cobalt bloom, purple host)
   ['blades', 0, 'metal', '#9a948a'],             // Wolframit
   ['rhomb', 2, 'gem', '#7a6038'],                // Siderit
   ['cubes', 4, 'gem', '#5fd0b0'],                // Fluorit
@@ -61,11 +61,11 @@ const ITEM_SPECS = [
   ['gem', 0, 'gem', '#ff7a98'],                  // Rubinsplitter
   ['geode', 0, 'gem', '#6d6470', '#7fb0ff'],     // Saphirgeode
   ['crystal', 0, 'gem', '#9ff0c0'],              // Smaragdkristall
-  ['geode', 1, 'gem', '#5a5060', '#d8a8ff'],     // Amethystdruse
+  ['saltcluster', 1, 'gem', '#5a5060', '#d8a8ff'], // Amethystdruse (crystal druse)
   ['gem', 1, 'gem', '#ffd29a'],                  // Topas
   ['opal', 0, 'gem', '#ff9ad8', '#7affd8'],      // Mondopal
   ['powder', 4, 'metal', '#eef2fa'],             // Iridiumstaub
-  ['ore', 7, 'metal', '#52504a', '#d8e4ee'],     // Palladiumerz
+  ['blades', 1, 'metal', '#c8ccd2'],             // Palladiumerz (platy metal)
   ['crystal', 1, 'gem', '#fff0f8'],              // Lithiumkristall
   ['geode', 2, 'gem', '#6a6a5a', '#bff6e6'],     // Berylliumgeode
   ['flakes', 2, 'metal', '#ffffff'],             // Rhodiumflitter
@@ -108,7 +108,8 @@ const ITEM_SPECS = [
 ];
 
 const ItemArt = {
-  spec(res) { const s = ITEM_SPECS[res] || ['rock', 0, 'stone']; return { fam: s[0], v: s[1], cat: s[2], c1: DATA.RESOURCES[res].color, c2: s[3] || Col.shade(DATA.RESOURCES[res].color, -0.4), c3: s[4] || Col.shade(DATA.RESOURCES[res].color, 0.4), tier: DATA.RESOURCES[res].tier, res }; },
+  // s[5] (optional) overrides the drawing colour only (DATA colour stays the UI colour)
+  spec(res) { const s = ITEM_SPECS[res] || ['rock', 0, 'stone']; return { fam: s[0], v: s[1], cat: s[2], c1: s[5] || DATA.RESOURCES[res].color, c2: s[3] || Col.shade(DATA.RESOURCES[res].color, -0.4), c3: s[4] || Col.shade(DATA.RESOURCES[res].color, 0.4), tier: DATA.RESOURCES[res].tier, res }; },
   T(hex) { return { hi: Col.shade(hex, 0.35), base: hex, lo: Col.shade(hex, -0.35), edge: Col.shade(hex, -0.7), rim: Col.shade(hex, 0.6) }; },
   lum(hex) { const c = Col.rgb(hex); return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; },
 
@@ -119,12 +120,13 @@ const ItemArt = {
   // outline: dark ring, light ring for very dark items or on very dark planet grounds (contrast >= 3:1)
   ringColor(sp) {
     const dark = ItemArt.lum(sp.c1) < 0.13 || sp.fam === 'darkmatter' || sp.fam === 'antimatter';
-    return dark || Render.darkGround ? '#c8d2eb' : Col.shade(sp.c1, -0.72);
+    if (Render.darkGround || (dark && !Render.lightGround)) return '#c8d2eb';
+    return Col.shade(sp.c1, -0.86);
   },
   sprite(res, ref, sizePx, rot = 0, frame = 0) {
     const tier = DATA.RESOURCES[res].tier;
     const f = tier === 7 ? frame & 7 : 0;
-    const dg = Render.darkGround ? 1 : 0;
+    const dg = Render.darkGround ? 1 : Render.lightGround ? 2 : 0;
     return Art.cached('IT|' + res + '|' + ref + '|' + sizePx + '|' + rot + '|' + f + '|' + dg, () => ItemArt.render(res, ref, sizePx, rot, f));
   },
   render(res, ref, S, rot, frame) {
@@ -148,8 +150,16 @@ const ItemArt = {
     // outline ring from the object's alpha mask (dark, or light for very dark items)
     const ring = Art.canvas(S, S), rx = ring.getContext('2d');
     rx.drawImage(O, 0, 0); rx.globalCompositeOperation = 'source-in';
-    rx.fillStyle = ItemArt.ringColor(sp); rx.fillRect(0, 0, S, S);
+    const rc = ItemArt.ringColor(sp);
     const w = Math.max(1, simple ? 1.6 : 1.3) * (S >= 96 ? S / 64 : 1);
+    // light halo outside a dark outline: keeps >= 3:1 contrast on mid-bright and dark grounds
+    {
+      rx.fillStyle = rc === '#c8d2eb' ? '#0c0a12' : '#fff4e2'; rx.fillRect(0, 0, S, S);
+      x.globalAlpha = 0.7;
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; x.drawImage(ring, Math.cos(a) * w * 2, Math.sin(a) * w * 2); }
+      x.globalAlpha = 1;
+    }
+    rx.fillStyle = rc; rx.fillRect(0, 0, S, S);
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; x.drawImage(ring, Math.cos(a) * w, Math.sin(a) * w); }
     x.drawImage(O, 0, 0);
     // rarity foreground (glints) baked lightly

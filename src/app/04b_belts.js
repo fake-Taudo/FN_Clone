@@ -224,7 +224,8 @@ const BeltArt = {
     }
     // evict layers not used recently (memory budget ~64 MB)
     let px = 0; for (const e of BeltArt.chunks.values()) px += e.canvas.width * e.canvas.height;
-    if (px > 11e6) for (const [k, e] of [...BeltArt.chunks.entries()].sort((a, b) => a[1].used - b[1].used)) { if (px <= 8e6 || now - e.used < 50) break; px -= e.canvas.width * e.canvas.height; BeltArt.chunks.delete(k); }
+    const capPx = App.touch ? 6e6 : 11e6;
+    if (px > capPx) for (const [k, e] of [...BeltArt.chunks.entries()].sort((a, b) => a[1].used - b[1].used)) { if (px <= capPx * 0.7 || now - e.used < 50) break; px -= e.canvas.width * e.canvas.height; BeltArt.chunks.delete(k); }
     if (App.settings.reducedFx || BeltArt.noMotion) return;
     // moving profile: slats (close zoom) and chevrons, one path per grade
     const o = BeltArt._o2 || (BeltArt._o2 = [0, 0, 0, 0]), fake = { p: 0, pp: 0, from: 0 };
@@ -358,7 +359,7 @@ const BeltArt = {
     const out = BeltArt._o || (BeltArt._o = [0, 0, 0, 0]);
     const fx = !App.settings.reducedFx;
     // numeric memo of item sprites for this size (avoids building string keys per item)
-    const memoKey = px + '|' + (Render.darkGround ? 1 : 0);
+    const memoKey = px + '|' + (Render.darkGround ? 1 : 0) + (Render.lightGround ? 2 : 0);
     if (BeltArt._mk !== memoKey || Art.tick - (BeltArt._mt || 0) > 900) { BeltArt._memo = new Map(); BeltArt._mk = memoKey; BeltArt._mt = Art.tick; }
     const memo = BeltArt._memo;
     const spr = (res, ref, rot, fr) => { const k = ((res * 4 + ref) * 3 + rot + 1) * 8 + fr; let c = memo.get(k); if (!c) { c = ItemArt.sprite(res, ref, px, rot, fr); memo.set(k, c); } return c; };

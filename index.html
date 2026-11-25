@@ -208,6 +208,31 @@ Effekte & Animation
   Banner-Schimmer, Seltenheitsrahmen im Kodex. Rebirth als längere Sequenz
   (Start, Hyperraum-Tunnel, Austrittsblitz, planetenspezifische Ankunft).
 
+Messwerte (Headless-Chromium ohne GPU, 1440x900; Median aus 3 abwechselnden Läufen
+alt/neu; JS = Zeit pro Frame im Hauptthread)
+    Szenario                         JS vorher -> nachher      FPS vorher -> nachher
+    200 Gebäude / 750 Bänder, Z16     3,64 -> 3,14 ms (-14 %)   46,5 -> 55,9
+    800 Gebäude / 3000 Bänder, Z14    6,99 -> 6,67 ms (-5 %)    34,0 -> 32,2
+    3000 Gebäude / 10000 Bänder, Z10  12,32 -> 9,52 ms (-23 %)  24,1 -> 26,8
+    800 / 3000 nah, Z30               3,82 -> 3,78 ms (-1 %)    34,7 -> 40,2
+    800 / 3000 sehr nah, Z48          2,27 -> 2,09 ms (-8 %)    52,2 -> 57,0
+  Kein Szenario mehr als 10 % langsamer. Ohne GPU rastert Chromium in Software;
+  die absoluten FPS sind deshalb niedriger als in einem normalen Browser, der
+  Vorher/Nachher-Vergleich ist unter gleichen Bedingungen gemessen.
+- Start: erster Frame des Titelbildschirms nach rund 65 ms (vorher 61 ms). Die
+  Planetenkugel wird nach dem ersten Bild erzeugt (Platzhalter bis dahin).
+- Item-Unterscheidbarkeit (tools/qa-items.js): alle 718 Paare innerhalb gleicher
+  Seltenheit bei 24 px und 16 px unterscheidbar (Kriterium: CIEDE2000 >= 12 oder
+  Silhouetten-IoU <= 0,75 oder Farbverteilung >= 0,35). Dafür wurden Kieselgur,
+  Talkum, Graphit, Chromit, Zinkblende, Kobalterz, Manganknollen, Nickelerz,
+  Zinnerz, Azurit, Palladiumerz und Amethystdruse in Form oder Farbe geschärft.
+- Kontrast gegen alle drei Bodentöne der 8 Planeten: mindestens 3,4:1 (Kontur,
+  Halo oder Itemfarbe).
+- Speicher: Sprite-Cache 110 MB (Touch 48 MB), gebackene Gelände- und Bandebenen
+  je höchstens 11 Mio. Pixel (Touch 6 Mio.), LRU-verdrängt.
+- Regression: alter Spielstand (große Basis) lädt, Offline-Ertrag, Rebirth und
+  Import/Export laufen, alle eingebauten Selbsttests grün.
+
 -->
 <html lang="de">
 <head>
@@ -578,7 +603,7 @@ textarea.io { width: 100%; min-height: 120px; border-radius: 12px; background: #
   .logo { width: 36px; height: 36px; }
   .logo-mark { width: 28px; height: 28px; }
   .tier-badge .bar { width: 72px; }
-  #banners { top: calc(66px + var(--sat)); width: calc(100% - 24px); }
+  #banners { top: calc(66px + var(--sat)); left: calc(10px + var(--sal)); transform: none; align-items: flex-start; width: calc(100% - var(--mm) - 44px - var(--sal) - var(--sar)); }
   .banner { font-size: 13px; padding: 6px 10px; }
   #toasts { top: calc(78px + var(--sat)); left: calc(10px + var(--sal)); transform: none; width: calc(100% - 150px - var(--sal) - var(--sar)); align-items: flex-start; }
   .toast { font-size: 13px; padding: 7px 10px; text-align: left; }
@@ -632,6 +657,7 @@ textarea.io { width: 100%; min-height: 120px; border-radius: 12px; background: #
 .bump { animation: bump 260ms cubic-bezier(.34,1.56,.64,1); }
 @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); } }
 #money { display: inline-block; transform-origin: left center; }
+#money { white-space: nowrap; }
 
 </style>
 </head>
@@ -5256,33 +5282,33 @@ const ITEM_SPECS = [
   ['flakes', 0, 'powder', '#2a2a2e'],            // Ascheflocken
   ['rhomb', 1, 'gem', '#b1a184'],                // Dolomit
   ['flakes', 1, 'powder', '#efe6c8'],            // Glimmerschuppen
-  ['powder', 1, 'powder', '#c9c1ad'],            // Kieselgur
+  ['granules', 2, 'powder', '#b8ae96'],          // Kieselgur (diatomite pellets)
   ['slate', 1, 'stone', '#b5703a', '#f0c08a'],   // Sandstein
   ['granules', 0, 'metal', '#8a93a3'],           // Magnetitkörner
   ['sand', 2, 'powder', '#5e7036'],              // Olivinsand
   ['clay', 2, 'powder', '#857356', '#c9b998'],   // Mergel
-  ['powder', 2, 'powder', '#c9c3d6'],            // Talkum
+  ['plates', 1, 'powder', '#c9c3d6'],            // Talkum (soapstone tablets)
   ['powder', 3, 'powder', '#b39a1e'],            // Schwefelstaub
-  ['rock', 5, 'metal', '#9aa3b3'],               // Graphitbrocken
+  ['plates', 2, 'metal', '#9aa3b3'],             // Graphitbrocken (platy graphite)
   ['glass', 0, 'gem', '#6e7fb8'],                // Obsidiansplitter
   // ---- Ungewöhnlich ----
   ['nugget', 0, 'metal', '#f0a66a'],             // Kupfernuggets
-  ['ore', 0, 'metal', '#5a5650', '#dfe6ea'],     // Zinnerz
+  ['ore', 0, 'metal', '#7a8088', '#eef2f6'],     // Zinnerz (light grey host)
   ['cubes', 0, 'metal', '#c6ccd6'],              // Bleiglanz
-  ['ore', 1, 'metal', '#6b5a3a', '#e8c25a'],     // Zinkblende
+  ['crust', 1, 'metal', '#2e2622', '#f0c040', '#e0a030'], // Zinkblende (amber crystals on dark host)
   ['cubes', 1, 'salt', '#ffffff'],               // Steinsalz
   ['cubes', 2, 'salt', '#c86a6a'],               // Kalisalz
-  ['ore', 2, 'metal', '#4f5a4c', '#a7d6a0'],     // Nickelerz
+  ['ore', 2, 'metal', '#3c5a3a', '#7fe08a'],     // Nickelerz (garnierite green)
   ['ore', 3, 'metal', '#7a3418', '#e08a5a'],     // Bauxit
-  ['ore', 4, 'metal', '#1c1e22', '#9aa6b8'],     // Chromit
-  ['nodule', 0, 'stone', '#3a2e25'],             // Manganknollen
+  ['rhomb', 3, 'metal', '#1c1e22', '#9aa6b8'],   // Chromit (octahedral crystals)
+  ['nodule', 0, 'stone', '#8a7a6a', null, '#5a3a5c'], // Manganknollen (purple-black nodules)
   ['cubes', 3, 'metal', '#f7e38a'],              // Pyrit
   ['banded', 0, 'stone', '#145c3a', '#7fe0a8'],  // Malachit
-  ['crust', 0, 'gem', '#6b6660', '#7fa6ff'],     // Azuritkruste
+  ['crust', 0, 'gem', '#4f6296', '#7fa6ff'],     // Azuritkruste (bluish host rock)
   ['needles', 0, 'salt', '#ffffff'],             // Borax
   ['saltcluster', 0, 'salt', '#ffe9c2'],         // Perchloratsalz
   ['plates', 0, 'metal', '#8a8592'],             // Ilmenit
-  ['ore', 5, 'metal', '#3a4456', '#ff9ac8'],     // Kobalterz
+  ['ore', 5, 'metal', '#6a4a62', '#ff9ac8'],     // Kobalterz (cobalt bloom, purple host)
   ['blades', 0, 'metal', '#9a948a'],             // Wolframit
   ['rhomb', 2, 'gem', '#7a6038'],                // Siderit
   ['cubes', 4, 'gem', '#5fd0b0'],                // Fluorit
@@ -5294,11 +5320,11 @@ const ITEM_SPECS = [
   ['gem', 0, 'gem', '#ff7a98'],                  // Rubinsplitter
   ['geode', 0, 'gem', '#6d6470', '#7fb0ff'],     // Saphirgeode
   ['crystal', 0, 'gem', '#9ff0c0'],              // Smaragdkristall
-  ['geode', 1, 'gem', '#5a5060', '#d8a8ff'],     // Amethystdruse
+  ['saltcluster', 1, 'gem', '#5a5060', '#d8a8ff'], // Amethystdruse (crystal druse)
   ['gem', 1, 'gem', '#ffd29a'],                  // Topas
   ['opal', 0, 'gem', '#ff9ad8', '#7affd8'],      // Mondopal
   ['powder', 4, 'metal', '#eef2fa'],             // Iridiumstaub
-  ['ore', 7, 'metal', '#52504a', '#d8e4ee'],     // Palladiumerz
+  ['blades', 1, 'metal', '#c8ccd2'],             // Palladiumerz (platy metal)
   ['crystal', 1, 'gem', '#fff0f8'],              // Lithiumkristall
   ['geode', 2, 'gem', '#6a6a5a', '#bff6e6'],     // Berylliumgeode
   ['flakes', 2, 'metal', '#ffffff'],             // Rhodiumflitter
@@ -5341,7 +5367,8 @@ const ITEM_SPECS = [
 ];
 
 const ItemArt = {
-  spec(res) { const s = ITEM_SPECS[res] || ['rock', 0, 'stone']; return { fam: s[0], v: s[1], cat: s[2], c1: DATA.RESOURCES[res].color, c2: s[3] || Col.shade(DATA.RESOURCES[res].color, -0.4), c3: s[4] || Col.shade(DATA.RESOURCES[res].color, 0.4), tier: DATA.RESOURCES[res].tier, res }; },
+  // s[5] (optional) overrides the drawing colour only (DATA colour stays the UI colour)
+  spec(res) { const s = ITEM_SPECS[res] || ['rock', 0, 'stone']; return { fam: s[0], v: s[1], cat: s[2], c1: s[5] || DATA.RESOURCES[res].color, c2: s[3] || Col.shade(DATA.RESOURCES[res].color, -0.4), c3: s[4] || Col.shade(DATA.RESOURCES[res].color, 0.4), tier: DATA.RESOURCES[res].tier, res }; },
   T(hex) { return { hi: Col.shade(hex, 0.35), base: hex, lo: Col.shade(hex, -0.35), edge: Col.shade(hex, -0.7), rim: Col.shade(hex, 0.6) }; },
   lum(hex) { const c = Col.rgb(hex); return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255; },
 
@@ -5352,12 +5379,13 @@ const ItemArt = {
   // outline: dark ring, light ring for very dark items or on very dark planet grounds (contrast >= 3:1)
   ringColor(sp) {
     const dark = ItemArt.lum(sp.c1) < 0.13 || sp.fam === 'darkmatter' || sp.fam === 'antimatter';
-    return dark || Render.darkGround ? '#c8d2eb' : Col.shade(sp.c1, -0.72);
+    if (Render.darkGround || (dark && !Render.lightGround)) return '#c8d2eb';
+    return Col.shade(sp.c1, -0.86);
   },
   sprite(res, ref, sizePx, rot = 0, frame = 0) {
     const tier = DATA.RESOURCES[res].tier;
     const f = tier === 7 ? frame & 7 : 0;
-    const dg = Render.darkGround ? 1 : 0;
+    const dg = Render.darkGround ? 1 : Render.lightGround ? 2 : 0;
     return Art.cached('IT|' + res + '|' + ref + '|' + sizePx + '|' + rot + '|' + f + '|' + dg, () => ItemArt.render(res, ref, sizePx, rot, f));
   },
   render(res, ref, S, rot, frame) {
@@ -5381,8 +5409,16 @@ const ItemArt = {
     // outline ring from the object's alpha mask (dark, or light for very dark items)
     const ring = Art.canvas(S, S), rx = ring.getContext('2d');
     rx.drawImage(O, 0, 0); rx.globalCompositeOperation = 'source-in';
-    rx.fillStyle = ItemArt.ringColor(sp); rx.fillRect(0, 0, S, S);
+    const rc = ItemArt.ringColor(sp);
     const w = Math.max(1, simple ? 1.6 : 1.3) * (S >= 96 ? S / 64 : 1);
+    // light halo outside a dark outline: keeps >= 3:1 contrast on mid-bright and dark grounds
+    {
+      rx.fillStyle = rc === '#c8d2eb' ? '#0c0a12' : '#fff4e2'; rx.fillRect(0, 0, S, S);
+      x.globalAlpha = 0.7;
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; x.drawImage(ring, Math.cos(a) * w * 2, Math.sin(a) * w * 2); }
+      x.globalAlpha = 1;
+    }
+    rx.fillStyle = rc; rx.fillRect(0, 0, S, S);
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; x.drawImage(ring, Math.cos(a) * w, Math.sin(a) * w); }
     x.drawImage(O, 0, 0);
     // rarity foreground (glints) baked lightly
@@ -6358,6 +6394,7 @@ const Render = {
   setPlanet(planet) {
     Render.chunks.clear(); Render.comps.clear();
     Render.darkGround = ItemArt.lum(planet.ground[1]) < 0.16;
+    Render.lightGround = ItemArt.lum(planet.ground[1]) > 0.6;
     Art.clearPlanet();
     Render.palette = planet;
     Render.planetStyle = planet.index <= 8 ? planet.index : (RNG.hash(planet.index, 3) % 8) + 1;
@@ -6490,9 +6527,10 @@ const Render = {
     }
     // memory cap for baked chunks (~40 MB of pixels)
     let px = 0; for (const e of Render.comps.values()) px += e.canvas.width * e.canvas.height;
-    if (px > 11e6) {
+    const capPx = App.touch ? 6e6 : 11e6;
+    if (px > capPx) {
       const arr = [...Render.comps.entries()].sort((a, b) => a[1].last - b[1].last);
-      for (const [k, e] of arr) { if (px <= 7e6 || e.last === App.frame) break; px -= e.canvas.width * e.canvas.height; Render.comps.delete(k); }
+      for (const [k, e] of arr) { if (px <= capPx * 0.65 || e.last === App.frame) break; px -= e.canvas.width * e.canvas.height; Render.comps.delete(k); }
     }
     need.sort((a, b) => a[2] - b[2]);
     for (const [cx, cy] of need) {
@@ -8981,7 +9019,8 @@ const BeltArt = {
     }
     // evict layers not used recently (memory budget ~64 MB)
     let px = 0; for (const e of BeltArt.chunks.values()) px += e.canvas.width * e.canvas.height;
-    if (px > 11e6) for (const [k, e] of [...BeltArt.chunks.entries()].sort((a, b) => a[1].used - b[1].used)) { if (px <= 8e6 || now - e.used < 50) break; px -= e.canvas.width * e.canvas.height; BeltArt.chunks.delete(k); }
+    const capPx = App.touch ? 6e6 : 11e6;
+    if (px > capPx) for (const [k, e] of [...BeltArt.chunks.entries()].sort((a, b) => a[1].used - b[1].used)) { if (px <= capPx * 0.7 || now - e.used < 50) break; px -= e.canvas.width * e.canvas.height; BeltArt.chunks.delete(k); }
     if (App.settings.reducedFx || BeltArt.noMotion) return;
     // moving profile: slats (close zoom) and chevrons, one path per grade
     const o = BeltArt._o2 || (BeltArt._o2 = [0, 0, 0, 0]), fake = { p: 0, pp: 0, from: 0 };
@@ -9115,7 +9154,7 @@ const BeltArt = {
     const out = BeltArt._o || (BeltArt._o = [0, 0, 0, 0]);
     const fx = !App.settings.reducedFx;
     // numeric memo of item sprites for this size (avoids building string keys per item)
-    const memoKey = px + '|' + (Render.darkGround ? 1 : 0);
+    const memoKey = px + '|' + (Render.darkGround ? 1 : 0) + (Render.lightGround ? 2 : 0);
     if (BeltArt._mk !== memoKey || Art.tick - (BeltArt._mt || 0) > 900) { BeltArt._memo = new Map(); BeltArt._mk = memoKey; BeltArt._mt = Art.tick; }
     const memo = BeltArt._memo;
     const spr = (res, ref, rot, fr) => { const k = ((res * 4 + ref) * 3 + rot + 1) * 8 + fr; let c = memo.get(k); if (!c) { c = ItemArt.sprite(res, ref, px, rot, fr); memo.set(k, c); } return c; };
@@ -12327,7 +12366,7 @@ const FX = {
       }
     }
   },
-  drawPlanet(ctx, cx, cy, r, planet, t, o) { PlanetArt.draw(ctx, cx, cy, r, planet, t, o); },
+  drawPlanet(ctx, cx, cy, r, planet, t, o) { PlanetArt.draw(ctx, cx, cy, r, planet, t, o || { async: true }); },
 
   // ---------------- title screen ----------------
   titleLoop: null,
@@ -12619,9 +12658,10 @@ const PlanetArt = {
     });
   },
   // lit sphere as a canvas (cached per planet and pixel size)
+  discSize(size) { const B = [64, 128, 256, 384, 512, 768]; for (const b of B) if (b >= size * 0.95) return b; return 768; },
+  pending: new Set(),
   disc(planet, size) {
-    const B = [64, 128, 256, 384, 512, 768];
-    let S = 768; for (const b of B) if (b >= size * 0.95) { S = b; break; }
+    const S = PlanetArt.discSize(size);
     return Art.cached('PL|' + planet.index + '|' + S, () => {
       const tex = PlanetArt.texture(planet, S <= 128 ? 128 : S <= 256 ? 256 : 384);
       const sp = PlanetArt.spec(planet);
@@ -12715,12 +12755,26 @@ const PlanetArt = {
     ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(cx, cy, r * 1.35, 0, Math.PI * 2); ctx.fill();
     PlanetArt.moons(ctx, cx, cy, r, planet, sp, true, t);
     PlanetArt.rings(ctx, cx, cy, r, planet, sp, true, t);
-    ctx.drawImage(PlanetArt.disc(planet, Math.min(768, px)), cx - r, cy - r, r * 2, r * 2);
+    const dkey = 'PL|' + planet.index + '|' + PlanetArt.discSize(Math.min(768, px));
+    if (o.async && !Art.cache.has(dkey)) {
+      // not generated yet: reuse another resolution of this planet if there is one, else a cheap shaded
+      // placeholder; the real surface is generated a moment later (keeps start-up and sequences smooth)
+      if (!PlanetArt.pending.has(dkey)) { PlanetArt.pending.add(dkey); setTimeout(() => { PlanetArt.disc(planet, Math.min(768, px)); PlanetArt.pending.delete(dkey); }, 60); }
+      let alt = null;
+      for (const b of [768, 512, 384, 256, 128, 64]) { const e = Art.cache.get('PL|' + planet.index + '|' + b); if (e) { alt = e.v; break; } }
+      if (alt) ctx.drawImage(alt, cx - r, cy - r, r * 2, r * 2);
+      else {
+      const pg = ctx.createRadialGradient(cx - r * 0.4, cy - r * 0.45, r * 0.1, cx, cy, r);
+      pg.addColorStop(0, planet.ground[2]); pg.addColorStop(0.6, planet.ground[1]); pg.addColorStop(1, Col.shade(planet.ground[0], -0.5));
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      }
+    } else ctx.drawImage(PlanetArt.disc(planet, Math.min(768, px)), cx - r, cy - r, r * 2, r * 2);
     // drifting cloud shimmer (cheap: rotating soft blotches inside the disc)
     if (sp.clouds > 0.2 && !o.still) {
       ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
-      ctx.globalAlpha = 0.12; ctx.fillStyle = '#ffffff';
-      for (let i = 0; i < 5; i++) { const a = t * 0.05 + i * 1.3; ctx.beginPath(); ctx.ellipse(cx + Math.cos(a) * r * 0.55, cy + (i - 2) * r * 0.3, r * 0.35, r * 0.07, 0.2, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = 0.16;
+      const soft = FxLib.tinted('soft', 0, '#ffffff');
+      for (let i = 0; i < 5; i++) { const a = t * 0.05 + i * 1.3, px = cx + Math.cos(a) * r * 0.55, py = cy + (i - 2) * r * 0.3; ctx.drawImage(soft, px - r * 0.45, py - r * 0.08, r * 0.9, r * 0.16); }
       ctx.restore();
     }
     // atmosphere rim (lit side stronger) and rim light for dark worlds

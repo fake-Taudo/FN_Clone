@@ -43,6 +43,7 @@ const Render = {
   setPlanet(planet) {
     Render.chunks.clear(); Render.comps.clear();
     Render.darkGround = ItemArt.lum(planet.ground[1]) < 0.16;
+    Render.lightGround = ItemArt.lum(planet.ground[1]) > 0.6;
     Art.clearPlanet();
     Render.palette = planet;
     Render.planetStyle = planet.index <= 8 ? planet.index : (RNG.hash(planet.index, 3) % 8) + 1;
@@ -175,9 +176,10 @@ const Render = {
     }
     // memory cap for baked chunks (~40 MB of pixels)
     let px = 0; for (const e of Render.comps.values()) px += e.canvas.width * e.canvas.height;
-    if (px > 11e6) {
+    const capPx = App.touch ? 6e6 : 11e6;
+    if (px > capPx) {
       const arr = [...Render.comps.entries()].sort((a, b) => a[1].last - b[1].last);
-      for (const [k, e] of arr) { if (px <= 7e6 || e.last === App.frame) break; px -= e.canvas.width * e.canvas.height; Render.comps.delete(k); }
+      for (const [k, e] of arr) { if (px <= capPx * 0.65 || e.last === App.frame) break; px -= e.canvas.width * e.canvas.height; Render.comps.delete(k); }
     }
     need.sort((a, b) => a[2] - b[2]);
     for (const [cx, cy] of need) {

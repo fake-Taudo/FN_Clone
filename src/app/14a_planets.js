@@ -95,9 +95,10 @@ const PlanetArt = {
     });
   },
   // lit sphere as a canvas (cached per planet and pixel size)
+  discSize(size) { const B = [64, 128, 256, 384, 512, 768]; for (const b of B) if (b >= size * 0.95) return b; return 768; },
+  pending: new Set(),
   disc(planet, size) {
-    const B = [64, 128, 256, 384, 512, 768];
-    let S = 768; for (const b of B) if (b >= size * 0.95) { S = b; break; }
+    const S = PlanetArt.discSize(size);
     return Art.cached('PL|' + planet.index + '|' + S, () => {
       const tex = PlanetArt.texture(planet, S <= 128 ? 128 : S <= 256 ? 256 : 384);
       const sp = PlanetArt.spec(planet);
@@ -191,12 +192,26 @@ const PlanetArt = {
     ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(cx, cy, r * 1.35, 0, Math.PI * 2); ctx.fill();
     PlanetArt.moons(ctx, cx, cy, r, planet, sp, true, t);
     PlanetArt.rings(ctx, cx, cy, r, planet, sp, true, t);
-    ctx.drawImage(PlanetArt.disc(planet, Math.min(768, px)), cx - r, cy - r, r * 2, r * 2);
+    const dkey = 'PL|' + planet.index + '|' + PlanetArt.discSize(Math.min(768, px));
+    if (o.async && !Art.cache.has(dkey)) {
+      // not generated yet: reuse another resolution of this planet if there is one, else a cheap shaded
+      // placeholder; the real surface is generated a moment later (keeps start-up and sequences smooth)
+      if (!PlanetArt.pending.has(dkey)) { PlanetArt.pending.add(dkey); setTimeout(() => { PlanetArt.disc(planet, Math.min(768, px)); PlanetArt.pending.delete(dkey); }, 60); }
+      let alt = null;
+      for (const b of [768, 512, 384, 256, 128, 64]) { const e = Art.cache.get('PL|' + planet.index + '|' + b); if (e) { alt = e.v; break; } }
+      if (alt) ctx.drawImage(alt, cx - r, cy - r, r * 2, r * 2);
+      else {
+      const pg = ctx.createRadialGradient(cx - r * 0.4, cy - r * 0.45, r * 0.1, cx, cy, r);
+      pg.addColorStop(0, planet.ground[2]); pg.addColorStop(0.6, planet.ground[1]); pg.addColorStop(1, Col.shade(planet.ground[0], -0.5));
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      }
+    } else ctx.drawImage(PlanetArt.disc(planet, Math.min(768, px)), cx - r, cy - r, r * 2, r * 2);
     // drifting cloud shimmer (cheap: rotating soft blotches inside the disc)
     if (sp.clouds > 0.2 && !o.still) {
       ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
-      ctx.globalAlpha = 0.12; ctx.fillStyle = '#ffffff';
-      for (let i = 0; i < 5; i++) { const a = t * 0.05 + i * 1.3; ctx.beginPath(); ctx.ellipse(cx + Math.cos(a) * r * 0.55, cy + (i - 2) * r * 0.3, r * 0.35, r * 0.07, 0.2, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = 0.16;
+      const soft = FxLib.tinted('soft', 0, '#ffffff');
+      for (let i = 0; i < 5; i++) { const a = t * 0.05 + i * 1.3, px = cx + Math.cos(a) * r * 0.55, py = cy + (i - 2) * r * 0.3; ctx.drawImage(soft, px - r * 0.45, py - r * 0.08, r * 0.9, r * 0.16); }
       ctx.restore();
     }
     // atmosphere rim (lit side stronger) and rim light for dark worlds

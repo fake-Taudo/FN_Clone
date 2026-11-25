@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-25T17:51:56.391Z",
+  "updated": "2026-11-25T18:14:58.457Z",
   "currentPhase": 20,
   "phases": [
     {
@@ -120,7 +120,7 @@
       "id": 20,
       "name": "Grafik 10: Performance & QS",
       "detail": "Messungen, Unterscheidbarkeit, Kontrast, Vorher/Nachher-Bögen",
-      "status": "active"
+      "status": "done"
     }
   ],
   "log": [
@@ -207,6 +207,10 @@
     {
       "time": "2026-11-25T17:51:56.391Z",
       "text": "Animationen: Platzier-Pop, Abriss, Ausbau-Überblendung, Kamera-Zoom-Easing, UI-Federn, längere Rebirth-Sequenz."
+    },
+    {
+      "time": "2026-11-25T18:14:58.457Z",
+      "text": "Performance & QS: in allen 5 Messszenarien nicht langsamer als vorher, 718 Item-Paare unterscheidbar, Kontrast >= 3,4:1 auf allen Planeten, Regressionstests grün."
     }
   ]
 }

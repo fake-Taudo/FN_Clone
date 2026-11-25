@@ -205,3 +205,28 @@ Effekte & Animation
   UI: Zähl-Puls, Drücken 0,96, Panels easeOutCubic 200 ms, Toasts mit Feder,
   Banner-Schimmer, Seltenheitsrahmen im Kodex. Rebirth als längere Sequenz
   (Start, Hyperraum-Tunnel, Austrittsblitz, planetenspezifische Ankunft).
+
+Messwerte (Headless-Chromium ohne GPU, 1440x900; Median aus 3 abwechselnden Läufen
+alt/neu; JS = Zeit pro Frame im Hauptthread)
+    Szenario                         JS vorher -> nachher      FPS vorher -> nachher
+    200 Gebäude / 750 Bänder, Z16     3,64 -> 3,14 ms (-14 %)   46,5 -> 55,9
+    800 Gebäude / 3000 Bänder, Z14    6,99 -> 6,67 ms (-5 %)    34,0 -> 32,2
+    3000 Gebäude / 10000 Bänder, Z10  12,32 -> 9,52 ms (-23 %)  24,1 -> 26,8
+    800 / 3000 nah, Z30               3,82 -> 3,78 ms (-1 %)    34,7 -> 40,2
+    800 / 3000 sehr nah, Z48          2,27 -> 2,09 ms (-8 %)    52,2 -> 57,0
+  Kein Szenario mehr als 10 % langsamer. Ohne GPU rastert Chromium in Software;
+  die absoluten FPS sind deshalb niedriger als in einem normalen Browser, der
+  Vorher/Nachher-Vergleich ist unter gleichen Bedingungen gemessen.
+- Start: erster Frame des Titelbildschirms nach rund 65 ms (vorher 61 ms). Die
+  Planetenkugel wird nach dem ersten Bild erzeugt (Platzhalter bis dahin).
+- Item-Unterscheidbarkeit (tools/qa-items.js): alle 718 Paare innerhalb gleicher
+  Seltenheit bei 24 px und 16 px unterscheidbar (Kriterium: CIEDE2000 >= 12 oder
+  Silhouetten-IoU <= 0,75 oder Farbverteilung >= 0,35). Dafür wurden Kieselgur,
+  Talkum, Graphit, Chromit, Zinkblende, Kobalterz, Manganknollen, Nickelerz,
+  Zinnerz, Azurit, Palladiumerz und Amethystdruse in Form oder Farbe geschärft.
+- Kontrast gegen alle drei Bodentöne der 8 Planeten: mindestens 3,4:1 (Kontur,
+  Halo oder Itemfarbe).
+- Speicher: Sprite-Cache 110 MB (Touch 48 MB), gebackene Gelände- und Bandebenen
+  je höchstens 11 Mio. Pixel (Touch 6 Mio.), LRU-verdrängt.
+- Regression: alter Spielstand (große Basis) lädt, Offline-Ertrag, Rebirth und
+  Import/Export laufen, alle eingebauten Selbsttests grün.
