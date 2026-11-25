@@ -1,0 +1,103 @@
+<!doctype html>
+<!--
+/*__DESIGN__*/
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#120d10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="Ares Outpost: Baue einen Außenposten auf fremden Planeten, fördere 91 Rohstoffe und handle mit Aliens.">
+<title>Ares Outpost</title>
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Spielwelt"></canvas>
+<div id="ui">
+  <!-- HUD top-left -->
+  <div id="hud-left" class="hud-panel">
+    <button id="logo" class="logo" aria-label="Spielinfo"><span class="logo-mark"></span></button>
+    <div class="money-block">
+      <div id="money" class="money">0 ET</div>
+      <div class="income-row"><span id="income">+0 ET/s</span><span id="save-dot" class="save-dot" title="Gespeichert"></span></div>
+    </div>
+    <button id="tier-badge" class="tier-badge" title="Kundenstufe"></button>
+  </div>
+  <div id="banners"></div>
+  <div id="toasts" aria-live="polite"></div>
+  <!-- HUD top-right -->
+  <div id="hud-right">
+    <div id="minimap-wrap" class="hud-panel">
+      <canvas id="minimap" width="160" height="160" aria-label="Minikarte"></canvas>
+      <div class="minimap-info"><span id="coords">0, 0</span><span id="planet-name"></span></div>
+    </div>
+    <div class="hud-buttons">
+      <button id="btn-minimap" class="icon-btn small" title="Minikarte ein-/ausklappen" aria-label="Minikarte umschalten">▣</button>
+      <button id="btn-map" class="icon-btn" title="Karte (M)" aria-label="Karte">⌖<span class="key">M</span></button>
+      <button id="btn-menu" class="icon-btn" title="Menü" aria-label="Menü">☰</button>
+      <button id="btn-fullscreen" class="icon-btn small" title="Vollbild" aria-label="Vollbild">⛶</button>
+    </div>
+  </div>
+  <div id="research-chip" class="hud-panel chip hidden"></div>
+  <div id="contracts-chip" class="hud-panel chip hidden"></div>
+  <button id="btn-center" class="pill hidden">◎ Zum Astronauten</button>
+  <div id="compass" class="hidden"><div class="needle"></div><span></span></div>
+  <!-- bottom right actions -->
+  <div id="actions">
+    <div id="build-actions" class="hidden">
+      <button id="btn-undo" class="icon-btn" title="Rückgängig (Z)" aria-label="Rückgängig">↶</button>
+      <button id="btn-redo" class="icon-btn" title="Wiederholen (Y)" aria-label="Wiederholen">↷</button>
+      <button id="btn-rotate" class="icon-btn" title="Drehen (R)" aria-label="Drehen">⟳<span class="key">R</span></button>
+      <button id="btn-place" class="icon-btn accent touch-only" title="Platzieren" aria-label="Platzieren">✓</button>
+      <button id="btn-cancel" class="icon-btn danger" title="Abbrechen (Esc)" aria-label="Abbrechen">✕</button>
+    </div>
+    <div id="main-actions">
+      <button id="btn-probe" class="icon-btn hidden" title="Langstrecken-Sonde" aria-label="Sonde">✦<svg class="cd"><circle r="20" cx="24" cy="24"></circle></svg></button>
+      <button id="btn-scan" class="icon-btn big" title="Scanner (F)" aria-label="Scanner">◉<span class="key">F</span><svg class="cd"><circle r="26" cx="31" cy="31"></circle></svg></button>
+      <button id="btn-build" class="icon-btn big accent" title="Bauen (B)" aria-label="Bauen">⚒<span class="key">B</span></button>
+    </div>
+  </div>
+  <div id="joystick" class="hidden"><div class="knob"></div></div>
+  <div id="buildbar" class="hidden">
+    <div class="bb-head">
+      <div id="bb-cats" class="bb-cats" role="tablist"></div>
+      <div class="bb-tools">
+        <button id="tool-demolish" class="pill" title="Abriss-Modus (Entf)">⌫ Abriss</button>
+        <button id="tool-select" class="pill hidden" title="Auswahl-Rechteck (Shift+Ziehen)">▭ Auswahl</button>
+        <button id="tool-pipette" class="pill" title="Pipette (Q)">⊙ Pipette</button>
+      </div>
+    </div>
+    <div id="bb-cards" class="bb-cards"></div>
+    <div id="bb-hint" class="bb-hint"></div>
+  </div>
+  <div id="ghost-info" class="hidden"></div>
+  <div id="selection-bar" class="hud-panel hidden"></div>
+  <aside id="info-panel" class="panel hidden" aria-label="Gebäude-Info"></aside>
+  <div id="tutorial" class="hidden"><div class="tut-text"></div><div class="tut-actions"><button class="pill tut-skip">Tutorial überspringen</button><button class="pill accent tut-next hidden">Weiter</button></div></div>
+  <div id="tooltip" class="hidden"></div>
+</div>
+<div id="modal-root"></div>
+<div id="screen-title" class="screen">
+  <canvas id="title-bg"></canvas>
+  <div class="title-inner">
+    <div class="title-logo"><span class="logo-mark big"></span></div>
+    <h1 id="title-name">Ares Outpost</h1>
+    <p class="title-sub">Ein Weltraum-Außenposten-Tycoon</p>
+    <div class="title-buttons">
+      <button id="btn-continue" class="btn accent big hidden">Weiterspielen</button>
+      <button id="btn-new" class="btn big">Neues Spiel</button>
+      <button id="btn-title-settings" class="btn">Einstellungen</button>
+    </div>
+    <p class="title-version" id="title-version"></p>
+  </div>
+</div>
+<div id="screen-fx" class="screen hidden"><canvas id="fx-canvas"></canvas><div class="fx-text"></div><button class="pill fx-skip">Überspringen</button></div>
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>
