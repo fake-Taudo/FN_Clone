@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-25T12:19:22.237Z",
+  "updated": "2026-11-25T12:34:08.358Z",
   "currentPhase": 4,
   "phases": [
     {
@@ -91,6 +91,10 @@
     {
       "time": "2026-11-25T12:19:22.237Z",
       "text": "Mobile-Steuerung überarbeitet (einklappbare Bauleiste, Pinch-Zoom, Joystick) und Performance-Optimierungen. Balancing läuft: greedy Bot spielt das echte Spiel, Zielzeiten werden abgestimmt."
+    },
+    {
+      "time": "2026-11-25T12:34:08.358Z",
+      "text": "Balancing-Runde: Bot erreicht Kundenstufe 2 nach 11–18 min, Stufe 4 nach ~1,5 h, Rebirth im Median nach ~3,7 h. Jetzt Planet 2 und Optik-Feinschliff."
     }
   ]
 }
