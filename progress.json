@@ -1,0 +1,19 @@
+{
+  "updated": "2026-11-25T11:20:00Z",
+  "currentPhase": 1,
+  "phases": [
+    {"id": 1, "name": "Fundament", "detail": "Datei-Gerüst, Game-Loop, Canvas/Resize, Input, Kamera, Astronaut, Debug-Grundlagen", "status": "active"},
+    {"id": 2, "name": "Welt", "detail": "Seed/RNG/Noise, Chunks, Terrain, Deko, Vorkommen, Glücksstart, Minimap/Karte, Scanner", "status": "open"},
+    {"id": 3, "name": "Daten", "detail": "91 Rohstoffe, Kodex, Seltenheitsprüfung", "status": "open"},
+    {"id": 4, "name": "Bauen & Logistik", "detail": "Raster, Platzierung, Rotation, Extraktoren, Bänder, Lager, Item-Fluss, Undo/Redo, Info-Panel", "status": "open"},
+    {"id": 5, "name": "Wirtschaft & Verkauf", "detail": "Raffinerien, Boni, Verkaufsgebäude, Kunden 1–6, Wunschlisten, Preise, Events", "status": "open"},
+    {"id": 6, "name": "Progression", "detail": "Forschung, Rebirth, Planeten, Rebirth-Shop, Erfolge", "status": "open"},
+    {"id": 7, "name": "Offline & Speichern", "detail": "Offline-Berechnung, Willkommen-zurück, Save/Load/Export/Import/Migration", "status": "open"},
+    {"id": 8, "name": "UI-Politur", "detail": "HUD, Menüs, Tutorial, Tooltips, Warnsymbole, Einstellungen, Audio", "status": "open"},
+    {"id": 9, "name": "Effekte & Optik", "detail": "Animationen, Partikel, Planeten-Looks, Rebirth-Sequenz, Qualitätsstufen", "status": "open"},
+    {"id": 10, "name": "Balancing & Härtung", "detail": "Balancing-Simulation, Performance, Selbsttests, Mobile-Test", "status": "open"}
+  ],
+  "log": [
+    {"time": "2026-11-25T11:20:00Z", "text": "Projekt angelegt, Live-Seite auf Render eingerichtet. Phase 1 startet."}
+  ]
+}

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ares Outpost – Entwicklungsfortschritt</title>
+<style>
+:root{--bg:#160d0a;--panel:#241612;--line:#3d2620;--text:#f3e6df;--muted:#b9a198;--accent:#ff7a3d;--ok:#5fd38a;--active:#ffc04d}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at top,#3a1a10 0%,var(--bg) 60%);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
+main{max-width:760px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:28px;margin:0 0 4px;letter-spacing:.02em}
+.sub{color:var(--muted);margin:0 0 24px}
+.play{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:10px 18px;border-radius:10px;background:var(--accent);color:#1a0b05;font-weight:700;text-decoration:none;margin-bottom:24px}
+.play:hover{filter:brightness(1.1)}
+.bar{height:10px;border-radius:6px;background:var(--line);overflow:hidden;margin:0 0 8px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--active));transition:width .4s ease-out}
+.meta{color:var(--muted);font-size:13px;margin-bottom:24px}
+ol{list-style:none;padding:0;margin:0 0 32px;display:grid;gap:8px}
+li{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:32px 1fr;gap:10px;align-items:start}
+.dot{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--line);color:var(--muted)}
+li.done .dot{background:var(--ok);color:#06210f}
+li.active{border-color:var(--active)}
+li.active .dot{background:var(--active);color:#2a1a00;animation:p 1.6s ease-in-out infinite}
+@keyframes p{50%{box-shadow:0 0 0 6px rgba(255,192,77,.18)}}
+@media (prefers-reduced-motion:reduce){li.active .dot{animation:none}}
+.n{font-weight:650}
+.d{color:var(--muted);font-size:13px}
+h2{font-size:17px;margin:0 0 10px}
+.log{display:grid;gap:6px}
+.log div{background:var(--panel);border-left:3px solid var(--accent);padding:8px 12px;border-radius:0 8px 8px 0;font-size:14px}
+.log time{display:block;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Ares Outpost</h1>
+  <p class="sub">Live-Fortschritt der Entwicklung. Die Seite aktualisiert sich alle 30 Sekunden.</p>
+  <a class="play" href="./">▶ Aktuellen Stand spielen</a>
+  <div class="bar"><i id="bar" style="width:0"></i></div>
+  <div class="meta" id="meta">Lade …</div>
+  <ol id="phases"></ol>
+  <h2>Protokoll</h2>
+  <div class="log" id="log"></div>
+</main>
+<script>
+const fmt = iso => new Date(iso).toLocaleString('de-DE', {dateStyle:'short', timeStyle:'short'});
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function load(){
+  try{
+    const r = await fetch('progress.json?t=' + Date.now(), {cache:'no-store'});
+    const p = await r.json();
+    const done = p.phases.filter(x => x.status === 'done').length;
+    document.getElementById('bar').style.width = (done / p.phases.length * 100) + '%';
+    document.getElementById('meta').textContent = done + ' von ' + p.phases.length + ' Phasen fertig · zuletzt aktualisiert ' + fmt(p.updated);
+    document.getElementById('phases').innerHTML = p.phases.map(x =>
+      '<li class="' + x.status + '"><span class="dot">' + (x.status === 'done' ? '✓' : x.id) + '</span><div><div class="n">' +
+      esc(x.name) + (x.status === 'active' ? ' · in Arbeit' : '') + '</div><div class="d">' + esc(x.detail) + '</div></div></li>').join('');
+    document.getElementById('log').innerHTML = p.log.slice().reverse().map(l =>
+      '<div><time>' + fmt(l.time) + '</time>' + esc(l.text) + '</div>').join('');
+  }catch(e){
+    document.getElementById('meta').textContent = 'Fortschritt konnte nicht geladen werden.';
+  }
+}
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>
