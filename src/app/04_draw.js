@@ -77,7 +77,8 @@ const Draw = {
   },
 
   // ---------------- buildings ----------------
-  building(ctx, g, b, x, y) {
+  building(ctx, g, b, x, y, partPass) {
+    if (partPass) { const d0 = Draw.dt; Draw.dt = 0; Draw._part = true; Draw.building(ctx, g, b, x, y); Draw._part = false; Draw.dt = d0; return; }
     if (b.type === 'belt') return Draw.belt(ctx, g, b, x, y);
     if (b.type === 'bridge') return;
     const now = App.now, fx = !App.settings.reducedFx;
@@ -311,9 +312,10 @@ const Draw = {
       }
     },
     bazaar(ctx, g, b, x, y, tm, vt) {
-      const W = b.w, H = b.h;
-      const cy = y + H - 0.72 - BA_E - 0.55 * Art.V + 0.18;
-      const pts = []; for (let i = 0; i < 4; i++) pts.push([x + 0.45 + i * ((W - 0.9) / 3), cy]);
+      const W = b.w, H = b.h, side = b.rot & 3;
+      const pts = [];
+      if (side === 0 || side === 2) { const cy = y + (side === 0 ? H - 0.72 : 0.14) - BA_E - 0.55 * Art.V + 0.18; for (let i = 0; i < 4; i++) pts.push([x + 0.45 + i * ((W - 0.9) / 3), cy]); }
+      else { const cx = x + (side === 1 ? 0.35 : W - 0.35); for (let i = 0; i < 4; i++) pts.push([cx, y + 0.45 + i * ((H - 0.9) / 3) - 0.3]); }
       Draw.shelfItems(ctx, b, pts, 0.2);
       const n = Math.max(5, Math.round(W * 2.5));
       const ayF = H * 0.52 - 0.6;
@@ -459,28 +461,46 @@ const Draw = {
 
   // ---------------- customers ----------------
   slotPos(b, slot, tier) {
-    if (tier === 0) return [b.x + 0.6 + (slot % 3) * ((b.w - 1.2) / 2), b.y + b.h + 0.55];
+    if (tier === 0) return Collide.stripPoint(b, slot);
     if (tier === 1) return [b.x + b.w / 2, b.y + b.h + 0.9];
     if (b.type === 'port') { const p = BuildingArt.GEO.pads('port', b.w)[slot % 2]; return [b.x + p[0], b.y + p[1]]; }
     return [b.x + b.w / 2, b.y + b.h / 2 + 0.2];
   },
-  customers(ctx, g, b) {
-    const tm = Draw.tm;
+  // positions customers (A* around hitboxes for walkers) and queues them for the depth sort
+  prepareCustomers(g, b, items, ships) {
+    const tmp = Draw._pt || (Draw._pt = [0, 0, 0]);
     for (const c of b.customers) {
       const [px, py] = Draw.slotPos(b, c.slot, c.tier);
-      let x = px, y = py, k = 1;
+      let x = px, y = py, k = 1, alpha = 1, dirx = 1;
       if (c.state === 'in') k = U.clamp(c.t / c.arrive, 0, 1);
       else if (c.state === 'out') k = 1 - U.clamp(c.t / 3, 0, 1);
       const e = Art.ease.inOutQuad(k);
-      if (c.tier <= 1) { x = c.sx + (px - c.sx) * e; y = c.sy + (py - c.sy) * e; }
-      c._wx = x; c._wy = y;
-      const rx = x - Render.ox, ry = y - Render.oy;
-      if (c.tier === 0) Draw.alien(ctx, rx, ry, c, tm, (px - c.sx) * (c.state === 'out' ? -1 : 1) >= 0 ? 1 : -1);
-      else if (c.tier === 1) CharArt.caravan(ctx, rx, ry, c, tm, Math.atan2(py - c.sy, px - c.sx) + (c.state === 'out' ? Math.PI : 0), c.state !== 'wait');
-      else CharArt.ship(ctx, rx, ry, c, tm, b);
-      if (c.state === 'wait' && App.cam.zoom >= 13) Draw.bubbles.push(rx, ry - (c.tier === 0 ? 1.6 : c.tier === 1 ? 1.65 : [0, 0, 2.2, 3.4, 5.6][c.tier] * 0.55), c);
+      if (c.tier <= 1) {
+        if (c._path === undefined) c._path = Paths.find(g, c.sx, c.sy, px, py) || null;
+        if (c._path) { Paths.at(c._path, e, tmp); x = tmp[0]; y = tmp[1]; dirx = (c.state === 'out' ? -tmp[2] : tmp[2]) >= 0 ? 1 : -1; c._ang = Math.atan2(0, dirx) ; }
+        else { x = px; y = py; alpha = Math.min(1, k * 3); dirx = 1; } // no way through: appear at the stall
+      }
+      c._wx = x; c._wy = y; c._alpha = alpha; c._dirx = dirx;
+      if (c.tier === 0 && c.state !== 'wait' && c._path) {
+        if (c._lpx === undefined) { c._lpx = x; c._lpy = y; c._ls = 1; }
+        else if (Math.hypot(x - c._lpx, y - c._lpy) > 0.42) { const a = Math.atan2(y - c._lpy, x - c._lpx); c._ls = -c._ls; Ground.addPrint('paw', x + Math.cos(a + 1.57) * 0.07 * c._ls, y + Math.sin(a + 1.57) * 0.07 * c._ls, a, c._ls); Ground.tread(x, y, 0.01); c._lpx = x; c._lpy = y; }
+      }
+      if (c.tier >= 2) ships.push(b, c);
+      else items.push({ kind: 'c', key: y, b, c });
+      if (c.state === 'wait' && App.cam.zoom >= 13) Draw.bubbles.push(x - Render.ox, y - Render.oy - (c.tier === 0 ? 1.6 : c.tier === 1 ? 1.65 : [0, 0, 2.2, 3.4, 5.6][c.tier] * 0.55), c);
       else c._bubAt = 0;
     }
+  },
+  drawCustomer(ctx, g, b, c) {
+    const tm = Draw.tm, rx = c._wx - Render.ox, ry = c._wy - Render.oy;
+    if (c._alpha < 1) ctx.globalAlpha = c._alpha;
+    if (c.tier === 0) Draw.alien(ctx, rx, ry, c, tm, c._dirx);
+    else {
+      let ang = c._dirx >= 0 ? 0 : Math.PI;
+      if (c._path && c.state !== 'wait') { const t2 = Draw._pt2 || (Draw._pt2 = [0, 0, 0]); const k = c.state === 'in' ? U.clamp(c.t / c.arrive, 0, 1) : 1 - U.clamp(c.t / 3, 0, 1); Paths.at(c._path, Math.min(1, Art.ease.inOutQuad(k) + 0.02), t2); ang = Math.atan2(t2[1] - c._wy, t2[0] - c._wx) + (c.state === 'out' ? Math.PI : 0); }
+      CharArt.caravan(ctx, rx, ry, c, tm, ang, c.state !== 'wait');
+    }
+    ctx.globalAlpha = 1;
   },
   skinCache: null,
   planetSkins() {

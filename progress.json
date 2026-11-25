@@ -1,6 +1,6 @@
 {
-  "updated": "2026-11-25T18:14:58.457Z",
-  "currentPhase": 20,
+  "updated": "2026-11-25T23:55:44.653Z",
+  "currentPhase": 32,
   "phases": [
     {
       "id": 1,
@@ -121,6 +121,71 @@
       "name": "Grafik 10: Performance & QS",
       "detail": "Messungen, Unterscheidbarkeit, Kontrast, Vorher/Nachher-Bögen",
       "status": "done"
+    },
+    {
+      "id": 21,
+      "name": "Welt 1: Analyse & Fundament (Worker, RNG-Streams, Seed-Test)",
+      "status": "done"
+    },
+    {
+      "id": 22,
+      "name": "Welt 2: Höhenfeld, Licht & Materialien",
+      "status": "done"
+    },
+    {
+      "id": 23,
+      "name": "Welt 3: Krater als Höhenstempel",
+      "status": "done"
+    },
+    {
+      "id": 24,
+      "name": "Welt 4: Dünen & Wind",
+      "status": "done"
+    },
+    {
+      "id": 25,
+      "name": "Welt 5: Felsen & Props (24+ Varianten)",
+      "status": "done"
+    },
+    {
+      "id": 26,
+      "name": "Welt 6: Farbe & Materialdetails",
+      "status": "active"
+    },
+    {
+      "id": 27,
+      "name": "Welt 7: Spuren, Trampelpfade, Baustellenboden",
+      "status": "open"
+    },
+    {
+      "id": 28,
+      "name": "Welt 8: Atmosphäre & Tag/Nacht",
+      "status": "open"
+    },
+    {
+      "id": 29,
+      "name": "Welt 9: Landmarken & Minimap",
+      "status": "open"
+    },
+    {
+      "id": 30,
+      "name": "Welt 10: Planeten 2–8 und prozedurale",
+      "status": "open"
+    },
+    {
+      "id": 31,
+      "name": "Welt 11: Tiefensortierung & Hitboxen",
+      "status": "done"
+    },
+    {
+      "id": 32,
+      "name": "Welt 12: Intro-Sequenz neu",
+      "status": "active"
+    },
+    {
+      "id": 33,
+      "name": "Welt 13: Zoom-LOD, Performance & QS",
+      "status": "open"
     }
   ],
   "log": [
@@ -211,6 +276,38 @@
     {
       "time": "2026-11-25T18:14:58.457Z",
       "text": "Performance & QS: in allen 5 Messszenarien nicht langsamer als vorher, 718 Item-Paare unterscheidbar, Kontrast >= 3,4:1 auf allen Planeten, Regressionstests grün."
+    },
+    {
+      "time": "2026-11-25T23:24:25.591337Z",
+      "text": "Neuer Auftrag: Detailtiefe der Spielwelt (Höhenfeld, Krater, Dünen, Felsen, Materialien, Atmosphäre, Planeten), Tiefensortierung und Hitboxen, neue Intro-Sequenz. 13 Phasen angelegt."
+    },
+    {
+      "time": "2026-11-25T23:55:44.480Z",
+      "text": "Analyse & Fundament: Worker-Baking, RNG-Streams pro Zweck/Chunk, Seed-Test 200 Chunks identisch"
+    },
+    {
+      "time": "2026-11-25T23:55:44.506Z",
+      "text": "Höhenfeld (Makro/Meso/Mikro, fBm, ridged, Domain-Warp), Hillshade+AO, 6 Materialien"
+    },
+    {
+      "time": "2026-11-25T23:55:44.531Z",
+      "text": "Krater als Höhenstempel: Power-Law, Altersstufen, unregelmäßiger Auswurf, Ketten, Sekundärkrater"
+    },
+    {
+      "time": "2026-11-25T23:55:44.560Z",
+      "text": "Dünen asymmetrisch mit Wind, Rippel, organische Feldränder"
+    },
+    {
+      "time": "2026-11-25T23:55:44.586Z",
+      "text": "Felsen & Props: 4 Größen x 6 Formen, Facetten, AO, Staubkante, Cluster; Wracks"
+    },
+    {
+      "time": "2026-11-25T23:55:44.619Z",
+      "text": "Tiefensortierung nach Fußlinie, Hitboxen pro Typ, Röntgen-Ausblendung, A*-Kundenwege, Befreiung"
+    },
+    {
+      "time": "2026-11-25T23:55:44.653Z",
+      "text": "Intro: Titel, Planet im Worker, Versorgungslander, Landesequenz"
     }
   ]
 }

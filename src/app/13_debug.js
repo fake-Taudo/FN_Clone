@@ -29,6 +29,7 @@ const Debug = {
     panel.append(h('b', { text: 'Welt' }));
     panel.append(row(btn('Seed neu würfeln', () => { g.meta.baseSeed = RNG.newSeed(); const g2 = Game.create(g.meta, g.run.planet); MainLoop.start(g2, { fresh: true }); Debug.show(); }),
       btn((App.debug.chunkBorders ? '☑' : '☐') + ' Chunk-Grenzen', () => { App.debug.chunkBorders = !App.debug.chunkBorders; Debug.show(); }),
+      btn((App.debug.hitboxes ? '☑' : '☐') + ' Hitboxen & Sortierung', () => { App.debug.hitboxes = !App.debug.hitboxes; Debug.show(); }),
       btn((App.debug.wallhack ? '☑' : '☐') + ' Alle Vorkommen', () => { App.debug.wallhack = !App.debug.wallhack; if (App.debug.wallhack) { const p = g.run.player; for (const d of World.depositsInRadius(g.world, p.x, p.y, 200)) g.world.known.add(d.id); World.discover(g.world, p.x, p.y, 200); } Debug.show(); })));
     panel.append(h('b', { text: 'Ereignisse' }));
     panel.append(row(btn('Positives Event', () => { if (!Economy.spawnEvent(g, true)) UI.toast('Erst etwas produzieren'); }), btn('Negatives Event', () => { if (!Economy.spawnEvent(g, false)) UI.toast('Erst etwas produzieren'); }), btn('Vertrag', () => { const c = Customers.makeContract(g); if (c) { g.run.contracts.push(c); g.events.push({ type: 'contractNew', c }); } })));

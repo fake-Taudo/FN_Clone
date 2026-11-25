@@ -762,7 +762,15 @@ const CONFIG = {
   chunkSize: 32,
   fogCell: 8,                   // discovery granularity in tiles (4x4 cells per chunk)
   viewDiscoverRadius: 18,       // tiles around the astronaut that become discovered
-  landing: { x: 16, y: 16 },    // landing point (centre of chunk 0/0)
+  landing: { x: 16, y: 16 },
+  // hitboxes per building type: 'none' (walkable), 'footprint' (full, inset 0.1) or 'custom' (massive parts only)
+  collision: {
+    belt: 'none', bridge: 'none', splitter: 'none', merger: 'none', crossing: 'none', fsplitter: 'none', osplitter: 'none',
+    path: 'none', lamp: 'none', flag: 'none', beacon: 'none', fence: 'none',
+    bazaar: 'custom', caravan: 'custom', shuttlepad: 'custom', port: 'custom', dock: 'custom',
+    extractor: 'footprint', refinery1: 'footprint', refinery2: 'footprint', refinery3: 'footprint', silo: 'footprint', lab: 'footprint',
+    cooler: 'footprint', servo: 'footprint', charger: 'footprint', terminal: 'footprint', plant: 'footprint'
+  },    // landing point (centre of chunk 0/0)
 
   // ---- world generation ----
   depositsPerChunk: [0.25, 0.40, 0.25, 0.10], // probability of 0/1/2/3 deposits => mean 1.2
@@ -2319,6 +2327,161 @@ const Actions = {
     if (err) { g.redo.push(act); return err; }
     g.undo.push(act);
     return null;
+  }
+};
+
+// ===== src/core/04c_collide.js =====
+// =====================================================================
+// Collide: building hitboxes and player collision (movement only; never
+// touches the economy, customers rates or offline calculation).
+// Conveyor belts and all flat transport parts are always walkable.
+// Hitboxes are rectangles in world tiles; the player is a circle that
+// slides along walls (vector push-out per sub-step, no tunnelling).
+// =====================================================================
+const Collide = {
+  // customer side of a bazaar follows its rotation
+  SIDE: [[0, 1], [-1, 0], [0, -1], [1, 0]],
+  mode(type) { return (CONFIG.collision && CONFIG.collision[type]) || 'none'; },
+  // rectangles [x0, y0, x1, y1] (world) for one building, cached on the building
+  boxes(b) {
+    const key = b.x + ',' + b.y + ',' + b.rot + ',' + b.w + ',' + b.h;
+    if (b._hbk === key) return b._hb;
+    const m = Collide.mode(b.type);
+    let R = [];
+    const X = b.x, Y = b.y, W = b.w, H = b.h, I = 0.1;
+    if (m === 'footprint') R = [[X + I, Y + I, X + W - I, Y + H - I]];
+    else if (m === 'custom') {
+      const rel = Collide.custom(b);
+      R = rel.map(r => [X + r[0], Y + r[1], X + r[2], Y + r[3]]);
+    }
+    b._hb = R; b._hbk = key;
+    return R;
+  },
+  custom(b) {
+    const W = b.w, H = b.h;
+    switch (b.type) {
+      case 'bazaar': {
+        // solid stall body (counter, back wall, roof posts) without the customer strip
+        const s = Collide.SIDE[b.rot & 3], strip = 0.7, I = 0.1;
+        let x0 = I, y0 = I, x1 = W - I, y1 = H - I;
+        if (s[1] === 1) y1 = H - strip; else if (s[1] === -1) y0 = strip; else if (s[0] === 1) x1 = W - strip; else x0 = strip;
+        return [[x0, y0, x1, y1]];
+      }
+      case 'caravan': return [[0.08, 0.04, W - 0.08, 0.32], [0.08, 0.32, 0.3, H - 0.2], [W - 0.3, 0.32, W - 0.08, H - 0.2], [0.55, 1.75, 1.45, 2.55], [W - 1.45, 1.75, W - 0.55, 2.55], [W / 2 - 0.35, 0.8, W / 2 + 0.35, 1.2]];
+      case 'shuttlepad': return [[W - 1.05, 0.15, W - 0.35, 0.68], [0.45, 0.33, 1.05, 0.68]];
+      case 'port': return [[W / 2 - 0.45, 0.28, W / 2 + 0.45, 1.05], [0.45, 0.35, 2.85, 0.9], [W - 2.85, 0.35, W - 0.45, 0.9], [0.46, H - 0.84, 0.64, H - 0.62], [W - 0.64, H - 0.84, W - 0.46, H - 0.62]];
+      case 'dock': return [[0.3, 0.35, 1.9, 1.32], [W - 1.45, 1.0, W - 0.55, 1.45], [0.2, 2.4, 1.5, 7.8], [W - 1.55, 2.4, W - 0.25, 7.8], [0.95, 7.55, 1.15, 7.85], [W - 1.15, 7.55, W - 0.95, 7.85]];
+      default: return [[0.1, 0.1, W - 0.1, H - 0.1]];
+    }
+  },
+  // where customers stand: centre of the free strip
+  stripPoint(b, slot) {
+    const s = Collide.SIDE[b.rot & 3];
+    if (s[1] === 1) return [b.x + 0.6 + (slot % 3) * ((b.w - 1.2) / 2), b.y + b.h - 0.32];
+    if (s[1] === -1) return [b.x + 0.6 + (slot % 3) * ((b.w - 1.2) / 2), b.y + 0.32];
+    if (s[0] === 1) return [b.x + b.w - 0.32, b.y + 0.6 + (slot % 3) * ((b.h - 1.2) / 2)];
+    return [b.x + 0.32, b.y + 0.6 + (slot % 3) * ((b.h - 1.2) / 2)];
+  },
+  extra: [], // additional rectangles (e.g. the intro lander's hull)
+  near(g, x, y, r, out) {
+    out.length = 0;
+    const seen = Collide._seen || (Collide._seen = new Set());
+    seen.clear();
+    const R = Math.ceil(r + 1);
+    for (let ty = Math.floor(y) - R; ty <= Math.floor(y) + R; ty++) for (let tx = Math.floor(x) - R; tx <= Math.floor(x) + R; tx++) {
+      const id = g.occ.get(U.tileKey(tx, ty));
+      if (id === undefined || seen.has(id)) continue;
+      seen.add(id);
+      const b = g.buildings.get(id);
+      if (!b || Collide.mode(b.type) === 'none') continue;
+      for (const rc of Collide.boxes(b)) out.push(rc);
+    }
+    for (const rc of Collide.extra) if (rc[0] < x + R && rc[2] > x - R && rc[1] < y + R && rc[3] > y - R) out.push(rc);
+    return out;
+  },
+  // push a circle out of rectangles; returns penetration depth handled
+  resolve(rects, p, r) {
+    let depth = 0;
+    for (let it = 0; it < 3; it++) {
+      let moved = false;
+      for (const rc of rects) {
+        const cx = Math.max(rc[0], Math.min(p.x, rc[2])), cy = Math.max(rc[1], Math.min(p.y, rc[3]));
+        let dx = p.x - cx, dy = p.y - cy, d2 = dx * dx + dy * dy;
+        if (d2 >= r * r) continue;
+        if (d2 > 1e-9) { const d = Math.sqrt(d2), k = (r - d) / d; p.x += dx * k; p.y += dy * k; depth = Math.max(depth, r - d); }
+        else {
+          // centre inside: leave through the nearest edge
+          const l = p.x - rc[0], rr = rc[2] - p.x, t = p.y - rc[1], bb = rc[3] - p.y, m = Math.min(l, rr, t, bb);
+          if (m === l) p.x = rc[0] - r; else if (m === rr) p.x = rc[2] + r; else if (m === t) p.y = rc[1] - r; else p.y = rc[3] + r;
+          depth = Math.max(depth, m + r);
+        }
+        moved = true;
+      }
+      if (!moved) break;
+    }
+    return depth;
+  },
+  blockedAt(g, x, y, r) {
+    const rects = Collide.near(g, x, y, r, Collide._tmp || (Collide._tmp = []));
+    for (const rc of rects) { const cx = Math.max(rc[0], Math.min(x, rc[2])), cy = Math.max(rc[1], Math.min(y, rc[3])); if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < r * r) return true; }
+    return false;
+  },
+  // nearest free point (spiral search), used for the stuck rescue and placing on the player
+  freePoint(g, x, y, r) {
+    for (let d = 0; d <= 16; d += 0.5) {
+      const n = Math.max(1, Math.round(d * 8));
+      for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2, px = x + Math.cos(a) * d, py = y + Math.sin(a) * d; if (!Collide.blockedAt(g, px, py, r)) return [px, py]; }
+    }
+    return [x, y];
+  },
+  // movement with sub-steps; also handles push-out after placing and soft landing zones
+  move(g, p, dx, dy, dt) {
+    const rover = g.run.research.done.has('rover') && p.moving;
+    const r = rover ? 0.45 : 0.28;
+    const rects = Collide._r || (Collide._r = []);
+    // a rescue glide ignores collisions until it arrives
+    if (p.rescue) {
+      const ex = p.rescue[0] - p.x, ey = p.rescue[1] - p.y, d = Math.hypot(ex, ey), sp = 7 * dt;
+      if (d <= sp) { p.x = p.rescue[0]; p.y = p.rescue[1]; p.rescue = null; } else { p.x += ex / d * sp; p.y += ey / d * sp; }
+      return;
+    }
+    const len = Math.hypot(dx, dy), n = Math.max(1, Math.ceil(len / 0.12));
+    for (let i = 0; i < n; i++) {
+      p.x += dx / n; p.y += dy / n;
+      Collide.near(g, p.x, p.y, r, rects);
+      if (rects.length) {
+        const before = [p.x, p.y];
+        const depth = Collide.resolve(rects, p, r);
+        // a building placed on top of the player: push out gently (max ~0.3 s), never block placing
+        if (depth > 0.2) {
+          const fp = Collide.freePoint(g, before[0], before[1], r);
+          p.x = before[0]; p.y = before[1];
+          p.rescue = fp; p.rescueSoft = true;
+          return;
+        }
+      }
+    }
+    // soft no-stand zones while a ship touches down
+    for (const z of Collide.zones) {
+      if (p.x > z[0] - r && p.x < z[2] + r && p.y > z[1] - r && p.y < z[3] + r) {
+        const cx = (z[0] + z[2]) / 2, cy = (z[1] + z[3]) / 2, ex = p.x - cx, ey = p.y - cy, d = Math.hypot(ex, ey) || 1;
+        p.x += ex / d * 3 * dt; p.y += ey / d * 3 * dt;
+        if (!g._hornAt || g.run.time - g._hornAt > 2) { g._hornAt = g.run.time; g.events.push({ type: 'landingZone' }); }
+      }
+    }
+  },
+  zones: [],
+  updateZones(g) {
+    Collide.zones.length = 0;
+    for (const b of g.lists.seller || []) {
+      if (!b.customers || SELLER_TIER[b.type] < 2) continue;
+      for (const c of b.customers) {
+        if (c.state !== 'in' || c.arrive - c.t > 2.2) continue;
+        const c0 = b.type === 'port' ? (c.slot % 2 ? [b.x + 5.05, b.y + 3.9] : [b.x + 1.95, b.y + 3.9]) : [b.x + b.w / 2, b.y + b.h / 2 + 0.2];
+        const half = b.type === 'dock' ? 2.1 : 1.4;
+        Collide.zones.push([c0[0] - half, c0[1] - half, c0[0] + half, c0[1] + half]);
+      }
+    }
   }
 };
 
@@ -3965,9 +4128,24 @@ const Game = {
     if (Math.abs(p.vx) < 0.01 && len === 0) p.vx = 0;
     if (Math.abs(p.vy) < 0.01 && len === 0) p.vy = 0;
     p.px = p.x; p.py = p.y;
-    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (g.introLock) { p.vx = 0; p.vy = 0; p.moving = false; return; }
+    Collide.updateZones(g);
+    const ox = p.x, oy = p.y;
+    Collide.move(g, p, p.vx * dt, p.vy * dt, dt);
+    // stuck rescue: pushing for 1.5 s without moving -> glide to the nearest free point
+    if (len > 0.3 && !p.rescue && Math.hypot(p.x - ox, p.y - oy) < 0.01 * Math.max(1, speed * dt * 10)) {
+      p.stuckT = (p.stuckT || 0) + dt;
+      if (p.stuckT > 1.5) {
+        const enc = Collide.freePoint(g, p.x, p.y, 0.3);
+        const far = Math.hypot(enc[0] - p.x, enc[1] - p.y) > 0.05;
+        // only when truly enclosed: no direction is free within one step
+        let free = 0; for (let a = 0; a < 8; a++) if (!Collide.blockedAt(g, p.x + Math.cos(a * 0.785) * 0.4, p.y + Math.sin(a * 0.785) * 0.4, 0.28)) free++;
+        if (free === 0 || far) { const fp = free === 0 ? Collide.freePoint(g, p.x + 0.01, p.y + 0.01, 0.3) : enc; p.rescue = fp; g.events.push({ type: 'stuck' }); }
+        p.stuckT = 0;
+      }
+    } else p.stuckT = 0;
     p.x = U.clamp(p.x, -2e6, 2e6); p.y = U.clamp(p.y, -2e6, 2e6);
-    p.moving = Math.hypot(p.vx, p.vy) > 0.3;
+    p.moving = Math.hypot(p.x - p.px, p.y - p.py) / Math.max(1e-4, dt) > 0.3 && Math.hypot(p.vx, p.vy) > 0.3;
     if (Math.abs(p.vx) > 0.2) p.face = p.vx > 0 ? 1 : -1;
     const cell = Math.floor(p.x / 4) + ',' + Math.floor(p.y / 4);
     if (cell !== g.lastCell) {
@@ -4905,6 +5083,7 @@ const Audio2 = {
       case 'rebirth': Audio2.noise(2.4, 0.25, { f0: 200, f1: 6000, attack: 0.8 }); Audio2.tone(60, 2.5, 'sawtooth', 0.12, { slide: 600, attack: 0.5 }); break;
       case 'land': Audio2.noise(1.2, 0.2, { f0: 3000, f1: 150 }); break;
       case 'warn': Audio2.tone(620, 0.1, 'square', 0.05); Audio2.tone(620, 0.1, 'square', 0.05, { delay: 0.16 }); break;
+      case 'horn': Audio2.tone(310, 0.35, 'sawtooth', 0.06); Audio2.tone(370, 0.35, 'sawtooth', 0.05); break;
     }
   },
   // Ambient drone per planet: two detuned oscillators through a slowly moving filter.
@@ -6391,8 +6570,9 @@ const Render = {
     Render.canvas.width = Math.round(w * dpr);
     Render.canvas.height = Math.round(hh * dpr);
   },
-  setPlanet(planet) {
+  setPlanet(planet, seed) {
     Render.chunks.clear(); Render.comps.clear();
+    TerrainSys.setPlanet(planet, seed !== undefined ? seed : (App.g ? App.g.world.seed : 1));
     Render.darkGround = ItemArt.lum(planet.ground[1]) < 0.16;
     Render.lightGround = ItemArt.lum(planet.ground[1]) > 0.6;
     Art.clearPlanet();
@@ -6405,6 +6585,7 @@ const Render = {
       const a = PROP_SETS[Math.floor(rnd() * PROP_SETS.length)], b = PROP_SETS[Math.floor(rnd() * PROP_SETS.length)];
       Render.look = { zones: [Col.shade(planet.ground[0], 0.15), Col.mix(planet.ground[2], planet.accent, 0.25), Col.shade(planet.ground[2], 0.2)], wind: rnd() * 2 - 1, props: [...new Set(a.concat(b))].slice(0, 3), amb: AMBS[Math.floor(rnd() * AMBS.length)], rockTint: planet.rock };
     }
+    Render.look = Object.assign({}, Render.look, { wind: TerrainSys.P.wind });
     Render.prints.length = 0;
     document.documentElement.style.setProperty('--accent', planet.accent);
     const lum = Col.rgb(planet.accent).reduce((a, c, i) => a + c * [0.299, 0.587, 0.114][i], 0);
@@ -6436,43 +6617,7 @@ const Render = {
 
   // ---------------- terrain ----------------
   smooth(a, b, x) { const t = U.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); },
-  terrainColor(w, x, y, out) {
-    const P = Render.palette, st = Render.planetStyle, L = Render.look;
-    const t = World.terrain(w, x, y);
-    const v = U.clamp(t.e * 0.6 + 0.5, 0, 1);
-    const band = v * 3, fl = Math.floor(band);
-    const vv = (fl + Render.smooth(0.3, 0.7, band - fl)) / 3;
-    const g0 = Col.rgb(P.ground[0]), g1 = Col.rgb(P.ground[1]), g2 = Col.rgb(P.ground[2]);
-    let r, g, b;
-    if (vv < 0.5) { const k = vv * 2; r = g0[0] + (g1[0] - g0[0]) * k; g = g0[1] + (g1[1] - g0[1]) * k; b = g0[2] + (g1[2] - g0[2]) * k; }
-    else { const k = (vv - 0.5) * 2; r = g1[0] + (g2[0] - g1[0]) * k; g = g1[1] + (g2[1] - g1[1]) * k; b = g1[2] + (g2[2] - g1[2]) * k; }
-    // large colour zones (low frequency, soft)
-    const z = w.noiseB.fbm(x / 120 + 300, y / 120 - 80, 2);
-    const mixIn = (hex, k) => { if (k <= 0) return; const c = Col.rgb(hex); r += (c[0] - r) * k; g += (c[1] - g) * k; b += (c[2] - b) * k; };
-    mixIn(L.zones[0], Render.smooth(-0.18, -0.42, z) * 0.45);
-    mixIn(L.zones[1], Render.smooth(0.2, 0.42, z) * 0.38);
-    const salt = w.noiseC.fbm(x / 70 - 40, y / 70 + 90, 2);
-    mixIn(L.zones[2], Render.smooth(0.38, 0.55, salt) * 0.4);
-    const wDune = Render.smooth(0.15, 0.35, t.b), wCrater = Render.smooth(-0.2, -0.4, t.b);
-    const wRock = Render.smooth(0.15, 0.35, t.r), wRub = Render.smooth(-0.15, -0.35, t.r);
-    let f = 1 + t.d * 0.045;
-    if (wDune > 0) { const rip = Math.sin((x * Math.cos(L.wind) + y * Math.sin(L.wind)) * 1.3 + t.e * 6); f *= 1 + wDune * (0.05 + rip * 0.05); }
-    if (wCrater > 0) f *= 1 - wCrater * 0.1;
-    if (wRub > 0 && t.d > 0.25) f *= 1 - wRub * 0.08;
-    r *= f; g *= f; b *= f;
-    if (wRock > 0) mixIn(P.rock, wRock * 0.3);
-    // planet identity baked into the ground
-    if (st === 2 && t.e < -0.42) mixIn(P.accent, Render.smooth(-0.42, -0.55, t.e) * 0.7);
-    if (st === 3) { if (t.d > 0.45) mixIn('#ffffff', 0.3); const crack = Math.abs(w.noiseC.noise2(x / 6, y / 6)); if (crack < 0.03) mixIn('#5a8ab8', 0.5); }
-    if (st === 4) { const vein = Math.abs(w.noiseC.noise2(x / 14, y / 14)); if (vein < 0.045) mixIn('#ff5a14', (1 - vein / 0.045) * 0.8); }
-    if (st === 5 && t.d > 0.3) mixIn(t.b > 0 ? '#6ad07a' : '#9a5ad6', Render.smooth(0.3, 0.6, t.d) * 0.35);
-    if (st === 6) { const gx = ((x % 6) + 6) % 6, gy = ((y % 6) + 6) % 6; if (gx < 0.1 || gy < 0.1) { r += 25; g += 45; b += 70; } }
-    if (st === 7 && t.d > 0.55) { r += 35; g += 35; b += 45; }
-    if (st === 8) { const n = w.noiseC.noise2(x * 3.1, y * 3.1); if (n > 0.8) { r = 230; g = 230; b = 255; } }
-    // muted ground (saturation economy): pull slightly towards grey
-    const gr = (r + g + b) / 3;
-    out[0] = r + (gr - r) * 0.12; out[1] = g + (gr - g) * 0.12; out[2] = b + (gr - b) * 0.12;
-  },
+  terrainColor(w, x, y, out) { TerrainCore.sampleColor(x, y, TerrainSys.P, out); },
   genChunk(g, cx, cy) {
     const S = CONFIG.chunkSize;
     const spt = App.quality === 'low' ? 2 : 3;
@@ -6489,60 +6634,8 @@ const Render = {
     x.putImageData(img, 0, 0);
     return c;
   },
-  drawTerrain(ctx, g, vr) {
-    const S = CONFIG.chunkSize;
-    const cx0 = Math.floor(vr.x0 / S), cy0 = Math.floor(vr.y0 / S), cx1 = Math.floor(vr.x1 / S), cy1 = Math.floor(vr.y1 / S);
-    let budget = Render.chunkGenBudget;
-    ctx.imageSmoothingEnabled = true;
-    const P = Render.palette;
-    const need = [];
-    // far/mid/near zoom: terrain + grain + decor baked per (sub-)chunk (one drawImage each)
-    const comp = Render.ppt() <= 66;
-    const cp = comp ? Art.bucket(Render.ppt(), 64) : 0;
-    const CS = cp <= 24 ? S : S / 2;
-    const drawn = Render.compDrawn || (Render.compDrawn = new Set());
-    drawn.clear();
-    let compBudget = 2;
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-      const key = U.chunkKey(cx, cy);
-      const ch = Render.chunks.get(key);
-      const rx = cx * S - Render.ox, ry = cy * S - Render.oy;
-      if (comp && ch) {
-        ch.last = App.frame;
-        let all = true;
-        for (let sy = 0; sy < S; sy += CS) for (let sx = 0; sx < S; sx += CS) {
-          const wx = cx * S + sx, wy = cy * S + sy;
-          if (wx + CS < vr.x0 || wx > vr.x1 || wy + CS < vr.y0 || wy > vr.y1) continue;
-          const sk = key + '|' + sx + '|' + sy + '|' + CS;
-          let cc = Render.comps.get(sk);
-          if ((!cc || cc.cp !== cp) && compBudget-- > 0) { cc = { canvas: Render.buildComp(g, cx, cy, sx, sy, CS, cp, ch.canvas), cp }; Render.comps.set(sk, cc); }
-          if (cc && cc.cp === cp) { cc.last = App.frame; ctx.drawImage(cc.canvas, rx + sx, ry + sy, CS + 0.02, CS + 0.02); }
-          else { all = false; ctx.drawImage(ch.canvas, sx / S * ch.canvas.width, sy / S * ch.canvas.height, CS / S * ch.canvas.width, CS / S * ch.canvas.height, rx + sx, ry + sy, CS + 0.02, CS + 0.02); }
-        }
-        if (all) drawn.add(key);
-        continue;
-      }
-      if (ch) { ch.last = App.frame; ctx.drawImage(ch.canvas, rx, ry, S + 0.02, S + 0.02); }
-      else { ctx.fillStyle = P.ground[1]; ctx.fillRect(rx, ry, S + 0.02, S + 0.02); need.push([cx, cy, U.dist2(cx * S + 16, cy * S + 16, App.cam.x, App.cam.y)]); }
-    }
-    // memory cap for baked chunks (~40 MB of pixels)
-    let px = 0; for (const e of Render.comps.values()) px += e.canvas.width * e.canvas.height;
-    const capPx = App.touch ? 6e6 : 11e6;
-    if (px > capPx) {
-      const arr = [...Render.comps.entries()].sort((a, b) => a[1].last - b[1].last);
-      for (const [k, e] of arr) { if (px <= capPx * 0.65 || e.last === App.frame) break; px -= e.canvas.width * e.canvas.height; Render.comps.delete(k); }
-    }
-    need.sort((a, b) => a[2] - b[2]);
-    for (const [cx, cy] of need) {
-      if (budget-- <= 0) break;
-      Render.chunks.set(U.chunkKey(cx, cy), { canvas: Render.genChunk(g, cx, cy), last: App.frame });
-    }
-    if (Render.chunks.size > 160) {
-      const arr = [...Render.chunks.entries()].sort((a, b) => a[1].last - b[1].last);
-      for (let i = 0; i < arr.length - 120; i++) Render.chunks.delete(arr[i][0]);
-    }
-    if (!comp) Render.drawGrain(ctx, vr);
-  },
+  // height-field terrain baked per chunk (TerrainCore / TerrainSys)
+  drawTerrain(ctx, g, vr) { TerrainSys.draw(ctx, g, vr); },
   comps: new Map(),
   buildComp(g, cx, cy, sx, sy, CS, cp, terrain) {
     const S = CONFIG.chunkSize, c = Art.canvas(CS * cp, CS * cp), x = c.getContext('2d');
@@ -6633,70 +6726,12 @@ const Render = {
     Render.decorCache.set(key, list);
     return list;
   },
-  drawDecor(ctx, g, vr) {
-    const S = CONFIG.chunkSize;
-    const z = App.cam.zoom;
-    const ppt = Art.bucket(Render.ppt(), 64);
-    const cx0 = Math.floor(vr.x0 / S), cy0 = Math.floor(vr.y0 / S), cx1 = Math.floor(vr.x1 / S), cy1 = Math.floor(vr.y1 / S);
-    const tm = App.now / 1000;
-    const anim = [];
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-      const baked = Render.compDrawn && Render.compDrawn.has(U.chunkKey(cx, cy));
-      for (const d of Render.decorFor(g, cx, cy)) {
-        if (d.x < vr.x0 - 6 || d.x > vr.x1 + 6 || d.y < vr.y0 - 6 || d.y > vr.y1 + 6) continue;
-        if (baked) { if (DECOR_ANIM[d.kind]) anim.push(d); continue; }
-        if (z < 12 && (d.kind === 'pebbles' || d.kind === 'dune')) continue;
-        const spr = DecorArt.sprite(d.kind, d.v, ppt);
-        const w = spr.w * d.s, h = spr.h * d.s;
-        ctx.drawImage(spr.canvas, d.x - Render.ox - w * spr.ax, d.y - Render.oy - h * spr.ay, w, h);
-        if (DECOR_ANIM[d.kind]) anim.push(d);
-      }
-    }
-    // animated props (pulsing lava, glowing mushrooms, twinkling stars ...)
-    if (anim.length && !App.settings.reducedFx) {
-      ctx.globalCompositeOperation = 'lighter';
-      for (const d of anim) {
-        const pulse = 0.55 + 0.45 * Math.sin(tm * DECOR_ANIM[d.kind].speed + d.ph * 6.28);
-        const a = DECOR_ANIM[d.kind];
-        ctx.globalAlpha = pulse * a.a;
-        const r = a.r * d.s;
-        ctx.drawImage(Sprites.glow(a.color === 'accent' ? Render.palette.accent : a.color), d.x - Render.ox - r, d.y - Render.oy - r * a.dy - r, r * 2, r * 2);
-      }
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-    }
-  },
+  // rocks and props: baked into the chunk image at far zoom, live sprites when close
+  drawDecor(ctx, g, vr) { TerrainSys.drawProps(ctx, vr); },
 
   // ---------------- footprints ----------------
-  updatePrints(g, dt) {
-    const p = g.run.player;
-    for (let i = Render.prints.length - 1; i >= 0; i--) { Render.prints[i].t += dt; if (Render.prints[i].t > 15) Render.prints.splice(i, 1); }
-    if (!p.moving) { Render.lastStep = null; return; }
-    if (!Render.lastStep) { Render.lastStep = { x: p.x, y: p.y, side: 1 }; return; }
-    const L = Render.lastStep;
-    const rover = g.run.research.done.has('rover');
-    const dist = Math.hypot(p.x - L.x, p.y - L.y);
-    if (dist < (rover ? 0.35 : 0.42)) return;
-    const a = Math.atan2(p.y - L.y, p.x - L.x);
-    L.side = -L.side;
-    if (Render.prints.length > 90) Render.prints.shift();
-    Render.prints.push({ x: p.x, y: p.y - 0.02, a, side: L.side, t: 0, rover });
-    L.x = p.x; L.y = p.y;
-    if (!App.settings.reducedFx && !rover) Render.spawn('dust', p.x + Math.cos(a + Math.PI / 2) * 0.08 * L.side, p.y, -Math.cos(a) * 0.3, -0.15, 0.7, Render.palette.particle, 0.09);
-  },
-  drawPrints(ctx) {
-    if (!Render.prints.length) return;
-    const col = Col.shade(Render.palette.ground[1], -0.4);
-    for (const f of Render.prints) {
-      const a = 1 - f.t / 15;
-      ctx.globalAlpha = a * 0.45;
-      ctx.save(); ctx.translate(f.x - Render.ox, f.y - Render.oy); ctx.rotate(f.a);
-      ctx.fillStyle = col;
-      if (f.rover) { ctx.fillRect(-0.22, -0.32, 0.44, 0.09); ctx.fillRect(-0.22, 0.23, 0.44, 0.09); }
-      else { ctx.beginPath(); ctx.ellipse(0, f.side * 0.09, 0.1, 0.05, 0, 0, Math.PI * 2); ctx.fill(); }
-      ctx.restore();
-    }
-    ctx.globalAlpha = 1;
-  },
+  updatePrints(g, dt) { Ground.update(g, dt); Ground.decayWear(dt); Ground.sandDrift(g, dt); },
+  drawPrints(ctx) { Ground.draw(ctx); },
 
   roundRect(ctx, x, y, w, hh, r) { Art.rrect(ctx, x, y, w, hh, r); },
 
@@ -7333,6 +7368,1198 @@ const DepositArt = {
   }
 };
 
+// ===== src/app/03t_terrain.js =====
+// =====================================================================
+// TerrainCore: deterministic height-field terrain (pure, DOM free, runs
+// in a Web Worker built from this object's source). World-space noise
+// only, so chunks are seamless. Own RNG streams (seed + purpose + cell);
+// the world/deposit RNG is never touched.
+//   relief (macro / meso / micro) -> craters stamped in age order ->
+//   dunes -> materials -> hillshade + soft shadows + AO -> pixel detail
+// =====================================================================
+const TerrainCore = {
+  GT: null,
+  init() {
+    if (TerrainCore.GT) return;
+    const g = new Float32Array(512);
+    for (let i = 0; i < 256; i++) { const a = i / 256 * Math.PI * 2 + 0.37; g[i * 2] = Math.cos(a); g[i * 2 + 1] = Math.sin(a); }
+    TerrainCore.GT = g;
+  },
+  hi(x, y, s) {
+    let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    h = Math.imul(h ^ (h >>> 16), 668265263);
+    return (h ^ (h >>> 15)) >>> 0;
+  },
+  hf(x, y, s) { return TerrainCore.hi(x, y, s) / 4294967296; },
+  rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; },
+  gn(x, y, s) {
+    const G = TerrainCore.GT, H = TerrainCore.hi;
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    const u = fx * fx * fx * (fx * (fx * 6 - 15) + 10), v = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
+    let k = (H(ix, iy, s) & 255) << 1; const n00 = G[k] * fx + G[k + 1] * fy;
+    k = (H(ix + 1, iy, s) & 255) << 1; const n10 = G[k] * (fx - 1) + G[k + 1] * fy;
+    k = (H(ix, iy + 1, s) & 255) << 1; const n01 = G[k] * fx + G[k + 1] * (fy - 1);
+    k = (H(ix + 1, iy + 1, s) & 255) << 1; const n11 = G[k] * (fx - 1) + G[k + 1] * (fy - 1);
+    const a = n00 + (n10 - n00) * u, b = n01 + (n11 - n01) * u;
+    return (a + (b - a) * v) * 1.45;
+  },
+  fbm(x, y, s, o) {
+    let sum = 0, amp = 0.5, f = 1, n = 0;
+    for (let i = 0; i < o; i++) { sum += amp * TerrainCore.gn(x * f + i * 17.31, y * f - i * 9.17, s + i * 101); n += amp; amp *= 0.5; f *= 2.03; }
+    return sum / n;
+  },
+  ridge(x, y, s, o) {
+    let sum = 0, amp = 0.5, f = 1, n = 0, prev = 1;
+    for (let i = 0; i < o; i++) { let r = 1 - Math.abs(TerrainCore.gn(x * f + i * 7.7, y * f + i * 3.3, s + i * 59)); r *= r; sum += r * amp * prev; prev = r; n += amp; amp *= 0.5; f *= 2.1; }
+    return sum / n;
+  },
+  // cellular noise: returns F2-F1 (crack distance) and writes the cell hash into out[0]
+  worley(x, y, s, out) {
+    const ix = Math.floor(x), iy = Math.floor(y), H = TerrainCore.hi;
+    let d1 = 9, d2 = 9, id = 0;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const cx = ix + i, cy = iy + j, h = H(cx, cy, s);
+      const px = cx + (h & 1023) / 1024, py = cy + ((h >>> 10) & 1023) / 1024;
+      const dx = px - x, dy = py - y, d = dx * dx + dy * dy;
+      if (d < d1) { d2 = d1; d1 = d; id = h; } else if (d < d2) d2 = d;
+    }
+    if (out) out[0] = id;
+    return Math.sqrt(d2) - Math.sqrt(d1);
+  },
+  ss(a, b, x) { let t = (x - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); },
+  rgb(hex) { const n = parseInt(hex.slice(1), 16); return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; },
+
+  // ---------------- planet parameters (plain data, sent to the worker) ----------------
+  STYLES: {
+    1: { name: 'ares', dust: '#b98a66', sand: '#c99a70', crust: '#9c5e42', gravel: '#8c6c58', bed: '#705854', salt: '#dccbb2', shadow: '#4a3048', zones: ['#b9874a', '#7a5058', '#857266', '#7e7a5e'], crater: 1, dune: 1, ridge: 0.8, mesa: 0.7, basin: 0.8, relief: 1, emis: '' },
+    2: { name: 'cuprum', dust: '#b88c5e', sand: '#c6a06a', crust: '#8e5c38', gravel: '#7c6248', bed: '#5c4838', salt: '#4fb8a0', shadow: '#3a2a30', zones: ['#c07a3a', '#6a4a3a', '#8a7a5a', '#5a8a70'], crater: 0.7, dune: 0.6, ridge: 1.1, mesa: 0.5, basin: 1, relief: 1.1, emis: 'patina' },
+    3: { name: 'glacia', dust: '#e6f0f8', sand: '#dbe9f4', crust: '#a6c8e2', gravel: '#90b0c8', bed: '#5e7ea0', salt: '#cdeafa', shadow: '#4a6a9a', zones: ['#c8dcf0', '#8ab0d0', '#e8f4ff', '#a0c0d8'], crater: 0.6, dune: 0.8, ridge: 1, mesa: 0.3, basin: 0.6, relief: 0.9, emis: 'ice' },
+    4: { name: 'ignis', dust: '#4c4646', sand: '#3e3838', crust: '#322a26', gravel: '#3c2e28', bed: '#26201e', salt: '#8a7a3a', shadow: '#1a1218', zones: ['#40302a', '#2a2a30', '#4a3a30', '#382624'], crater: 0.9, dune: 0.7, ridge: 0.9, mesa: 0.6, basin: 0.4, relief: 1.1, emis: 'lava' },
+    5: { name: 'viridia', dust: '#4e5e42', sand: '#6c5c7c', crust: '#42503a', gravel: '#5c4c68', bed: '#30293f', salt: '#4fd6a8', shadow: '#1e1830', zones: ['#5a7a48', '#5a4a72', '#3e5a4a', '#6a6a4a'], crater: 0.4, dune: 0.4, ridge: 0.8, mesa: 0.8, basin: 0.9, relief: 1, emis: 'bio' },
+    6: { name: 'nebulon', dust: '#352c54', sand: '#3c3062', crust: '#2c2448', gravel: '#2c2c4c', bed: '#1e1a3a', salt: '#4c4a80', shadow: '#120a24', zones: ['#3a2a6a', '#24305a', '#4a2a5a', '#2a2a4a'], crater: 0.5, dune: 0.3, ridge: 0.7, mesa: 0.9, basin: 0.7, relief: 0.8, emis: 'grid' },
+    7: { name: 'crystallis', dust: '#e4dcf0', sand: '#d8d0e8', crust: '#c8bcd8', gravel: '#b8acd0', bed: '#9c8cba', salt: '#eaf6ff', shadow: '#7a6a9a', zones: ['#d0c4e8', '#c4e0f0', '#e8dcf0', '#b8b0d8'], crater: 0.6, dune: 0.5, ridge: 0.9, mesa: 0.6, basin: 0.8, relief: 1, emis: 'crystal' },
+    8: { name: 'singularis', dust: '#1c1c36', sand: '#22223e', crust: '#14142a', gravel: '#18182e', bed: '#0e0e20', salt: '#2a2a50', shadow: '#05050c', zones: ['#20163a', '#14143a', '#1a1030', '#101828'], crater: 0.7, dune: 0.3, ridge: 0.7, mesa: 0.5, basin: 0.6, relief: 0.9, emis: 'void' }
+  },
+  params(planet, seed) {
+    const k = planet.index || 1;
+    let st = TerrainCore.STYLES[k <= 8 ? k : 1], base = k <= 8 ? k : 1;
+    let pal = st;
+    if (k > 8) {
+      // procedural planets: a base style recoloured from the planet palette
+      base = 1 + (TerrainCore.hi(k, 77, 5) % 8);
+      st = TerrainCore.STYLES[base];
+      const mix = (a, b, t) => { const A = TerrainCore.rgb(a), B = TerrainCore.rgb(b); const c = A.map((v, i) => Math.round((v + (B[i] - v) * t) * 255)); return '#' + c.map(v => v.toString(16).padStart(2, '0')).join(''); };
+      const g0 = planet.ground[0], g1 = planet.ground[1], g2 = planet.ground[2];
+      pal = Object.assign({}, st, { dust: mix(g2, st.dust, 0.3), sand: mix(g2, g1, 0.4), crust: mix(g1, st.crust, 0.25), gravel: mix(g1, g0, 0.4), bed: mix(g0, st.bed, 0.3), salt: mix(planet.deco || g2, '#ffffff', 0.3), shadow: mix(g0, '#000000', 0.5), zones: [mix(g1, planet.accent, 0.25), g0, mix(g2, '#808080', 0.3), mix(g1, g2, 0.5)] });
+    }
+    const r = TerrainCore.rgb;
+    return {
+      seed: (seed ^ Math.imul(k, 2654435761)) >>> 0, k, style: base, name: st.name,
+      col: [r(pal.dust), r(pal.sand), r(pal.crust), r(pal.gravel), r(pal.bed), r(pal.salt)],
+      shadow: r(pal.shadow), zones: pal.zones.map(r),
+      crater: st.crater, dune: st.dune, ridge: st.ridge, mesa: st.mesa, basin: st.basin, relief: st.relief, emis: st.emis,
+      wind: (TerrainCore.hf(k, 3, 9) - 0.5) * 1.4 + 0.3,
+      landing: [16, 16]
+    };
+  },
+
+  // ---------------- feature lists (craters, landmarks) ----------------
+  CC: 40, // crater cell size (tiles)
+  LC: 192, // landmark cell size (tiles)
+  craterCell(ci, cj, P) {
+    const T = TerrainCore, rnd = T.rng(T.hi(ci, cj, P.seed + 7001));
+    const S = T.CC, out = [];
+    const field = T.ss(-0.2, 0.45, T.fbm(ci * S / 300 + 4.1, cj * S / 300 - 2.7, P.seed + 31, 2));
+    let n = Math.floor((1.2 + field * 13) * P.crater * (0.6 + rnd() * 0.8));
+    const add = (x, y, R, age, prof) => {
+      const kind = R > 7 ? 2 : R > 3 ? 1 : 0;
+      out.push({ x, y, R, age, prof, kind, e: 0.82 + rnd() * 0.18, rot: rnd() * 3.1416, seed: (rnd() * 1e9) | 0, rays: rnd() < 0.5 });
+    };
+    for (let i = 0; i < n; i++) {
+      const u = rnd();
+      const R = Math.min(12, 0.9 * Math.pow(1 - u * 0.99, -0.72));
+      add((ci + rnd()) * S, (cj + rnd()) * S, R, rnd(), Math.floor(rnd() * 8));
+    }
+    // crater chain
+    if (rnd() < 0.12 * P.crater) {
+      const a = rnd() * 3.1416, x0 = (ci + 0.2 + rnd() * 0.6) * S, y0 = (cj + 0.2 + rnd() * 0.6) * S, m = 5 + Math.floor(rnd() * 5), age = rnd();
+      for (let i = 0; i < m; i++) add(x0 + Math.cos(a) * i * 2.3, y0 + Math.sin(a) * i * 2.3, 0.7 + rnd() * 0.9, age + rnd() * 0.02, 4);
+    }
+    // secondary field around big craters
+    const big = out.filter(c => c.R > 5);
+    for (const c of big) {
+      const m = 5 + Math.floor(rnd() * 8);
+      for (let i = 0; i < m; i++) { const a = rnd() * 6.283, d = c.R * (2 + rnd() * 2.2); add(c.x + Math.cos(a) * d, c.y + Math.sin(a) * d, 0.5 + rnd() * 0.7, c.age + 0.001, 4); }
+    }
+    return out;
+  },
+  landmarkCell(li, lj, P) {
+    const T = TerrainCore, rnd = T.rng(T.hi(li, lj, P.seed + 9001));
+    if (rnd() > 0.42) return null;
+    const L = T.LC, x = (li + 0.2 + rnd() * 0.6) * L, y = (lj + 0.2 + rnd() * 0.6) * L;
+    if (Math.hypot(x - P.landing[0], y - P.landing[1]) < 70) return null;
+    const types = ['basin', 'riverbed', 'canyon', 'mesas', 'devils', 'wreck', 'basin', 'wreck'];
+    const type = types[Math.floor(rnd() * types.length)];
+    const lm = { type, x, y, seed: (rnd() * 1e9) | 0, a: rnd() * 6.283, R: 16 + rnd() * 14, wreck: Math.floor(rnd() * 6) };
+    if (type === 'riverbed' || type === 'canyon') {
+      // meandering polyline
+      const pts = []; let px = x, py = y, a = lm.a;
+      const len = type === 'canyon' ? 14 : 22;
+      for (let i = 0; i < len; i++) { pts.push([px, py]); a += (rnd() - 0.5) * (type === 'canyon' ? 0.25 : 0.7); px += Math.cos(a) * 5; py += Math.sin(a) * 5; }
+      lm.pts = pts; lm.w = type === 'canyon' ? 2.2 + rnd() * 1.5 : 1.4 + rnd();
+    }
+    return lm;
+  },
+  context(cx, cy, S, P, deposits) {
+    const T = TerrainCore, C = { craters: [], lms: [], deps: deposits || [] };
+    const x0 = cx * S - 34, y0 = cy * S - 34, x1 = (cx + 1) * S + 34, y1 = (cy + 1) * S + 34;
+    for (let j = Math.floor(y0 / T.CC); j <= Math.floor(y1 / T.CC); j++) for (let i = Math.floor(x0 / T.CC); i <= Math.floor(x1 / T.CC); i++) {
+      for (const c of T.craterCell(i, j, P)) if (c.x + c.R * 2.4 > x0 + 30 && c.x - c.R * 2.4 < x1 - 30 && c.y + c.R * 2.4 > y0 + 30 && c.y - c.R * 2.4 < y1 - 30) C.craters.push(c);
+    }
+    const lx0 = cx * S - 90, ly0 = cy * S - 90, lx1 = (cx + 1) * S + 90, ly1 = (cy + 1) * S + 90;
+    for (let j = Math.floor(ly0 / T.LC); j <= Math.floor(ly1 / T.LC); j++) for (let i = Math.floor(lx0 / T.LC); i <= Math.floor(lx1 / T.LC); i++) {
+      const lm = T.landmarkCell(i, j, P);
+      if (!lm) continue;
+      if (lm.type === 'basin') C.craters.push({ x: lm.x, y: lm.y, R: lm.R, age: 0.02, prof: 2, kind: 3, e: 0.92, rot: lm.a, seed: lm.seed, rays: false, basin: true });
+      C.lms.push(lm);
+    }
+    C.craters.sort((a, b) => a.age - b.age);
+    C.near = C.craters; // per-sample filtered by bbox in field()
+    return C;
+  },
+
+  // ---------------- the height field ----------------
+  // writes into o: [h, dune, eject, rim, bowlFill, basin, ridge, mesaEdge, mineral, rays, landmarkMat, depNear, inBowl]
+  field(x, y, P, C, o) {
+    const T = TerrainCore, s = P.seed;
+    const wx = x + 38 * T.fbm(x / 310, y / 310, s + 1, 2), wy = y + 38 * T.fbm(x / 310 + 7.7, y / 310 - 3.1, s + 2, 2);
+    const macro = T.fbm(wx / 520, wy / 520, s + 3, 3);
+    let h = macro * 5.5 * P.relief + T.fbm(wx / 38, wy / 38, s + 17, 3) * 1.25 * P.relief;
+    // ridges (exposed bedrock crests)
+    const rgMask = T.ss(0.0, 0.45, T.fbm(x / 260, y / 260, s + 5, 2)) * P.ridge;
+    let ridge = 0;
+    if (rgMask > 0.01) { const rg = T.ridge(wx / 64, wy / 64, s + 4, 3); ridge = rg * rg * rg * rgMask; h += ridge * 7.5; }
+    // mesas with soft break edges
+    let mesaEdge = 0;
+    const mm = P.mesa * T.ss(0.15, 0.5, T.fbm(x / 430 + 3, y / 430, s + 7, 2));
+    if (mm > 0.01) { const ms = T.fbm(wx / 105, wy / 105, s + 6, 3); const t = T.ss(0.16, 0.26, ms); h += t * 2.4 * mm; mesaEdge = (1 - Math.abs(t * 2 - 1)) * mm; }
+    // basins / dry lakes
+    const bs = T.fbm(x / 270 - 5, y / 270 + 9, s + 8, 2);
+    const basin = P.basin * T.ss(-0.22, -0.4, bs);
+    if (basin > 0) h = h * (1 - basin * 0.92) - basin * 1.6;
+    // dunes: asymmetric profile along the wind, warped crests, organic field edges
+    let dune = 0;
+    const dm = P.dune * T.ss(0.12, 0.38, T.fbm(x / 185 + 11, y / 185 - 6, s + 10, 3)) * (1 - basin) * (1 - T.ss(0.25, 0.6, ridge));
+    if (dm > 0.01) {
+      const wa = P.wind + 0.45 * T.fbm(x / 600, y / 600, s + 12, 2);
+      const cw = Math.cos(wa), sw = Math.sin(wa);
+      const u = x * cw + y * sw, v = -x * sw + y * cw;
+      const uu = u + 5 * T.fbm(v / 22, u / 45, s + 13, 2) + 2 * T.gn(v / 7, u / 9, s + 14);
+      const lam = 10.5;
+      let ph = uu / lam; ph -= Math.floor(ph);
+      const prof = ph < 0.72 ? T.ss(0, 0.72, ph) : 1 - T.ss(0.72, 1, ph);
+      const gap = T.ss(-0.15, 0.25, T.gn(v / 14 + 3, u / 30, s + 15)); // barchan-like breaks
+      dune = dm * prof * (0.45 + 0.55 * gap);
+      h += dune * 1.5;
+    }
+    // micro relief
+    h += T.gn(x / 2.6, y / 2.6, s + 9) * 0.1 + T.gn(x / 1.1, y / 1.1, s + 16) * 0.035;
+    // craters stamped in age order (young cut old)
+    let eject = 0, rim = 0, fill = 0, rays = 0, inBowl = 0;
+    const cr = C.craters;
+    for (let i = 0; i < cr.length; i++) {
+      const c = cr[i];
+      const dx = x - c.x, dy = y - c.y, R = c.R;
+      if (dx > R * 2.4 || dx < -R * 2.4 || dy > R * 2.4 || dy < -R * 2.4) continue;
+      const ca = Math.cos(c.rot), sa = Math.sin(c.rot);
+      const lx = dx * ca + dy * sa, ly = (-dx * sa + dy * ca) / c.e;
+      const d = Math.sqrt(lx * lx + ly * ly);
+      const ang = Math.atan2(ly, lx);
+      const Rn = R * (1 + 0.09 * T.gn(Math.cos(ang) * 1.6 + c.seed % 97, Math.sin(ang) * 1.6, c.seed));
+      const q = d / Rn;
+      if (q > 2.3) continue;
+      const fresh = c.basin ? 0.7 : c.age < 0.2 ? 1 : c.age < 0.55 ? 0.72 : c.age < 0.88 ? 0.42 : 0.16;
+      const D = Math.min(R, 6) * 0.3 * fresh * (c.prof === 4 ? 1.25 : 1);
+      if (q < 1.06) {
+        let bowl;
+        if (c.prof === 1 || (R > 4 && c.prof !== 4)) bowl = -D * (1 - Math.pow(Math.min(1, q / 0.95), 2.6)); // flat-ish floor
+        else bowl = -D * (1 - q * q);
+        if ((c.prof === 2 || c.kind >= 2) && R > 3.5) bowl += D * 0.75 * Math.exp(-(q * q) / 0.016); // central peak
+        if ((c.prof === 3 && c.kind >= 2 || c.basin) && q > 0.55 && q < 0.93) bowl += D * 0.06 * Math.sin(q * 22) * Math.max(0, T.gn(Math.cos(ang) * 2 + 3, Math.sin(ang) * 2, c.seed + 5)); // broken terraces
+        const rimH = D * (c.prof === 5 ? 0.25 : 0.4) * Math.exp(-Math.pow((q - 1) / (fresh > 0.7 ? 0.1 : 0.2), 2));
+        const target = c.href + bowl + rimH;
+        const k = 1 - T.ss(0.92, 1.06, q);
+        h = h + (target - h) * k + rimH * (1 - k);
+        if (c.age > 0.55) fill = Math.max(fill, (1 - q) * (c.age > 0.88 ? 0.9 : 0.6));
+        inBowl = Math.max(inBowl, 1 - T.ss(0.85, 1.15, q));
+        rim = Math.max(rim, Math.exp(-Math.pow((q - 1) / 0.12, 2)) * fresh);
+      } else {
+        const t = (q - 1) / 1.3;
+        const rimH = D * 0.4 * Math.exp(-Math.pow((q - 1) / (fresh > 0.7 ? 0.1 : 0.2), 2));
+        const ej = t < 1 ? (1 - t) * (1 - t) : 0;
+        let ray = 0;
+        if (c.rays && fresh > 0.7) { ray = Math.max(0, T.gn(Math.cos(ang) * 4.5 + c.seed % 31, Math.sin(ang) * 4.5, c.seed + 1)) * ej; }
+        h += rimH + D * 0.07 * ej * (0.6 + T.gn(lx / 1.3, ly / 1.3, c.seed + 2));
+        eject = Math.max(eject, ej * fresh * (c.prof === 5 ? 1.3 : 1));
+        rays = Math.max(rays, ray);
+        rim = Math.max(rim, Math.exp(-Math.pow((q - 1) / 0.12, 2)) * fresh);
+        inBowl = Math.max(inBowl, 1 - T.ss(1.0, 1.25, q));
+      }
+    }
+    // landmark carving (riverbed / canyon)
+    let lmMat = 0;
+    for (let i = 0; i < C.lms.length; i++) {
+      const lm = C.lms[i];
+      if (!lm.pts) continue;
+      let best = 1e9;
+      const pts = lm.pts;
+      for (let k = 0; k < pts.length - 1; k++) {
+        const ax = pts[k][0], ay = pts[k][1], bx = pts[k + 1][0], by = pts[k + 1][1];
+        const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy;
+        let t = ((x - ax) * vx + (y - ay) * vy) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const ex = ax + vx * t - x, ey = ay + vy * t - y, dd = ex * ex + ey * ey;
+        if (dd < best) best = dd;
+      }
+      const dist = Math.sqrt(best), W = lm.w * (1 + 0.3 * T.gn(x / 9, y / 9, lm.seed));
+      if (dist < W * 3) {
+        const q = dist / W;
+        if (lm.type === 'canyon') { h -= 1.8 * Math.exp(-q * q * 1.2) - 0.35 * Math.exp(-Math.pow(q - 1.4, 2) * 3); lmMat = Math.max(lmMat, Math.exp(-q * q)); }
+        else { h -= 0.9 * Math.exp(-q * q * 1.6); lmMat = Math.max(lmMat, Math.exp(-q * q * 0.8) * 0.8); }
+      }
+    }
+    // deposits sit on a flattened, calm plateau (no rims or dunes running through them)
+    let depNear = 0;
+    const deps = C.deps;
+    for (let i = 0; i < deps.length; i++) {
+      const dp = deps[i];
+      const dx = x - dp.x, dy = y - dp.y;
+      if (dx * dx + dy * dy > (dp.r + 3) * (dp.r + 3)) continue;
+      const dd = Math.sqrt(dx * dx + dy * dy);
+      const k = 1 - T.ss(dp.r, dp.r + 2.4, dd);
+      if (k > 0) { h = h + (dp.h - h) * k * 0.92; depNear = Math.max(depNear, k); }
+    }
+    const mineral = T.fbm(x / 140 + 300, y / 140 - 80, s + 20, 2);
+    o[0] = h; o[1] = dune; o[2] = eject; o[3] = rim; o[4] = fill; o[5] = basin; o[6] = ridge; o[7] = mesaEdge; o[8] = mineral; o[9] = rays; o[10] = lmMat; o[11] = depNear; o[12] = inBowl;
+  },
+  // height of the undisturbed surface (reference for crater floors and deposit plateaus)
+  baseH(x, y, P) {
+    const T = TerrainCore, o = new Float32Array(13);
+    T.field(x, y, P, { craters: [], lms: [], deps: [] }, o);
+    return o[0];
+  },
+
+  // ---------------- bake one chunk ----------------
+  // job: { cx, cy, S, res, P, deps, level } -> { w, h, rgba, emis, cells, props }
+  bake(job) { const it = TerrainCore.bakeIter(job); let r = it.next(); while (!r.done) r = it.next(); return r.value; },
+  _gc: null,
+  *bakeIter(job) {
+    const T = TerrainCore; T.init();
+    const { cx, cy, S, res, P } = job;
+    const GS0 = res <= 6 ? 2 : res <= 12 ? 4 : 6;
+    const gkey = cx + ',' + cy + ',' + GS0 + ',' + P.seed + ',' + (job.depKey || '');
+    if (!T._gc) T._gc = new Map();
+    let GD = T._gc.get(gkey);
+    if (!GD) {
+      GD = yield* T.gridIter(job, GS0);
+      T._gc.set(gkey, GD);
+      if (T._gc.size > 18) T._gc.delete(T._gc.keys().next().value);
+    }
+    return yield* T.pixelIter(job, GD);
+  },
+  *gridIter(job, GS) {
+    const T = TerrainCore;
+    const { cx, cy, S, P } = job;
+    const C = T.context(cx, cy, S, P, null);
+    for (const c of C.craters) c.href = T.baseH(c.x, c.y, P);
+    C.deps = (job.deps || []).map(d => ({ x: d.x, y: d.y, r: d.r, h: T.baseH(d.x, d.y, P), tier: d.tier, col: d.col ? T.rgb(d.col) : null }));
+    const PAD = GS * 3, N = S * GS + PAD * 2;
+    const x0 = cx * S, y0 = cy * S;
+    const H = new Float32Array(N * N), A = new Float32Array(N * N * 13);
+    const o = new Float32Array(13);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      T.field(x0 + (i - PAD + 0.5) / GS, y0 + (j - PAD + 0.5) / GS, P, C, o);
+      const k = j * N + i; H[k] = o[0];
+      for (let q = 0; q < 13; q++) A[k * 13 + q] = o[q];
+      if (i === N - 1 && (j & 7) === 7) yield;
+    }
+    // lighting on the grid: hillshade, soft shadows along the light, ambient occlusion
+    const Z = 1.7, LX = -0.5, LY = -0.5, LZ = 0.707;
+    const SH = new Float32Array(N * N), W = new Float32Array(N * N * 6), ALB = new Float32Array(N * N * 3), EM = new Float32Array(N * N);
+    const col = P.col, zones = P.zones;
+    const st = P.style;
+    for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+      const k = j * N + i;
+      const dhx = (H[k + 1] - H[k - 1]) * GS * 0.5 * Z, dhy = (H[k + N] - H[k - N]) * GS * 0.5 * Z;
+      const nl = Math.sqrt(dhx * dhx + dhy * dhy + 1);
+      const lam = (-dhx * LX - dhy * LY + LZ) / nl / LZ; // 1 on flat ground
+      const lap = (H[k + 1] + H[k - 1] + H[k + N] + H[k - N] - 4 * H[k]) * GS * GS * 0.25;
+      // soft shadow: march towards the sun
+      let sh = 1;
+      for (let m = 1; m <= PAD - 1; m++) {
+        const ii = i - m, jj = j - m;
+        if (ii < 0 || jj < 0) break;
+        const rise = (H[jj * N + ii] - H[k]) * Z - m / GS * 1.414 * 0.9;
+        if (rise > 0) { sh = Math.min(sh, 1 - Math.min(1, rise * 2.2) * 0.4); }
+      }
+      const ao = Math.max(0.72, Math.min(1.06, 1 - lap * 0.35));
+      SH[k] = Math.max(0.55, Math.min(1.45, lam)) * sh * ao;
+      // materials
+      const a = A, b = k * 13;
+      const slope = Math.sqrt(dhx * dhx + dhy * dhy) / Z;
+      const dune = a[b + 1], ej = a[b + 2], rimv = a[b + 3], fill = a[b + 4], basin = a[b + 5], ridge = a[b + 6], mesaE = a[b + 7], mineral = a[b + 8], rays = a[b + 9], lmm = a[b + 10], dep = a[b + 11];
+      const wx = x0 + (i - PAD + 0.5) / GS, wy = y0 + (j - PAD + 0.5) / GS;
+      const patch = T.gn(wx / 9, wy / 9, P.seed + 40) * 0.7 + T.gn(wx / 4, wy / 4, P.seed + 44) * 0.3;
+      const patch2 = T.fbm(wx / 26, wy / 26, P.seed + 42, 2), patch3 = T.gn(wx / 15 + 5, wy / 15, P.seed + 43);
+      let wSand = dune * 1.6 + T.ss(0.3, 0.6, patch) * 0.25;
+      let wDust = T.ss(0.0, 0.25, lap) * 0.8 + fill * 1.2 + T.ss(-0.05, -0.4, patch) * 0.9 + (1 - T.ss(0.05, 0.3, slope)) * 0.12;
+      let wCrust = (0.25 + T.ss(0.05, 0.4, patch2) * 0.6) * (1 - a[b + 12] * 0.9) * (1 - rimv);
+      let wGravel = ej * 1.2 + T.ss(0.2, 0.5, slope) * 0.5 + lmm * 0.8 + dep * 0.35 + T.ss(0.3, 0.6, patch3) * 0.45;
+      let wBed = T.ss(0.45, 1.0, slope) * 1.2 + ridge * 2.2 + rimv * 0.6 + mesaE * 0.9 + T.ss(0.42, 0.6, -patch2) * 0.5;
+      let wSalt = basin * 1.6 + (st === 2 || st === 5 ? T.ss(0.35, 0.6, -patch) * basin : 0);
+      if (lmm > 0.2) wSalt += lmm * 0.25;
+      const sum = wSand + wDust + wCrust + wGravel + wBed + wSalt;
+      wSand /= sum; wDust /= sum; wCrust /= sum; wGravel /= sum; wBed /= sum; wSalt /= sum;
+      const w6 = k * 6; W[w6] = wDust; W[w6 + 1] = wSand; W[w6 + 2] = wCrust; W[w6 + 3] = wGravel; W[w6 + 4] = wBed; W[w6 + 5] = wSalt;
+      let r = col[0][0] * wDust + col[1][0] * wSand + col[2][0] * wCrust + col[3][0] * wGravel + col[4][0] * wBed + col[5][0] * wSalt;
+      let g = col[0][1] * wDust + col[1][1] * wSand + col[2][1] * wCrust + col[3][1] * wGravel + col[4][1] * wBed + col[5][1] * wSalt;
+      let bb = col[0][2] * wDust + col[1][2] * wSand + col[2][2] * wCrust + col[3][2] * wGravel + col[4][2] * wBed + col[5][2] * wSalt;
+      // mineral zones: hue/value variation in large soft regions
+      const zi = mineral > 0.18 ? 0 : mineral < -0.2 ? 1 : -1;
+      if (zi >= 0) { const zk = T.ss(0.18, 0.42, Math.abs(mineral)) * 0.32; r += (zones[zi][0] - r) * zk; g += (zones[zi][1] - g) * zk; bb += (zones[zi][2] - bb) * zk; }
+      const z2 = T.gn(wx / 60 + 9, wy / 60, P.seed + 41);
+      if (z2 > 0.35) { const zk = T.ss(0.35, 0.6, z2) * 0.22; r += (zones[2][0] - r) * zk; g += (zones[2][1] - g) * zk; bb += (zones[2][2] - bb) * zk; }
+      if (z2 < -0.45) { const zk = T.ss(-0.45, -0.7, z2) * 0.2; r += (zones[3][0] - r) * zk; g += (zones[3][1] - g) * zk; bb += (zones[3][2] - bb) * zk; }
+      // fresh ejecta and rays are brighter, old crater floors dustier
+      const bright = 1 + rays * 0.22 + ej * 0.05 * (rays > 0 ? 1 : 0);
+      r *= bright; g *= bright; bb *= bright;
+      // mineral halo around rare deposits
+      for (let d = 0; d < C.deps.length; d++) {
+        const dp = C.deps[d];
+        if (!dp.col || dp.tier < 2) continue;
+        const dd = Math.hypot(wx - dp.x, wy - dp.y);
+        const hk = (1 - T.ss(dp.r * 0.8, dp.r + 2.5 + dp.tier * 0.4, dd)) * (0.06 + dp.tier * 0.02);
+        if (hk > 0) { r += (dp.col[0] - r) * hk; g += (dp.col[1] - g) * hk; bb += (dp.col[2] - bb) * hk; }
+      }
+      // planet-specific emission (night glow) and tints
+      let em = 0;
+      if (P.emis === 'lava') { const lv = 1 - Math.abs(T.gn(wx / 3.8, wy / 3.8, P.seed + 50)); const lm2 = T.ss(-0.1, 0.4, T.fbm(wx / 70, wy / 70, P.seed + 51, 2)) * (1 - wSand); em = T.ss(0.93, 0.985, lv) * lm2; r += em * 0.25; g += em * 0.08; }
+      else if (P.emis === 'bio') { const bio = T.fbm(wx / 11, wy / 11, P.seed + 52, 2); if (bio > 0.3) { const k2 = T.ss(0.3, 0.55, bio) * (1 - wSand); r += (0.33 - r) * k2 * 0.5; g += (0.54 - g) * k2 * 0.5; bb += (0.27 - bb) * k2 * 0.5; em = k2 * 0.35 * T.ss(0.1, 0.6, T.gn(wx / 2, wy / 2, P.seed + 53)); } em += wSalt * 0.4; }
+      else if (P.emis === 'patina') em = wSalt * 0.25;
+      else if (P.emis === 'crystal') em = wSalt * 0.15;
+      ALB[k * 3] = r; ALB[k * 3 + 1] = g; ALB[k * 3 + 2] = bb; EM[k] = em;
+      if (i === N - 2 && (j & 15) === 15) yield;
+    }
+    // per-tile dominant material (footprints, minimap)
+    const mats = new Uint8Array(S * S);
+    for (let ty = 0; ty < S; ty++) for (let tx = 0; tx < S; tx++) {
+      const k = (ty * GS + PAD + (GS >> 1)) * N + tx * GS + PAD + (GS >> 1);
+      let best = 0, bw = -1;
+      for (let m = 0; m < 6; m++) if (W[k * 6 + m] > bw) { bw = W[k * 6 + m]; best = m; }
+      mats[ty * S + tx] = best;
+    }
+    const props = T.props(cx, cy, S, P, C, A, N, GS, PAD, W);
+    return { GS, PAD, N, SH, W, ALB, EM, mats, props, lms: C.lms.map(l => ({ type: l.type, x: l.x, y: l.y, wreck: l.wreck, a: l.a, seed: l.seed })) };
+  },
+  *pixelIter(job, GD) {
+    const T = TerrainCore;
+    const { cx, cy, S, res, P } = job;
+    const { GS, PAD, N, SH, W, ALB, EM } = GD;
+    const x0 = cx * S, y0 = cy * S, st = P.style;
+    const PW = S * res;
+    const rgba = new Uint8ClampedArray(PW * PW * 4);
+    const hasEm = !!P.emis && P.emis !== 'ice';
+    const emis = hasEm ? new Uint8ClampedArray(PW * PW * 4) : null;
+    const shR = P.shadow[0], shG = P.shadow[1], shB = P.shadow[2];
+    const wa = P.wind, wcx = Math.cos(wa), wcy = Math.sin(wa);
+    const cell = new Float64Array(1);
+    const detail = res >= 8;
+    const fine = res >= 16;
+    for (let py = 0; py < PW; py++) {
+      const wy = y0 + (py + 0.5) / res;
+      const gy = (py + 0.5) / res * GS + PAD - 0.5;
+      const j0 = Math.floor(gy), fy = gy - j0;
+      for (let px = 0; px < PW; px++) {
+        const wx = x0 + (px + 0.5) / res;
+        const gx = (px + 0.5) / res * GS + PAD - 0.5;
+        const i0 = Math.floor(gx), fx = gx - i0;
+        const k00 = j0 * N + i0, k10 = k00 + 1, k01 = k00 + N, k11 = k01 + 1;
+        const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+        let r = ALB[k00 * 3] * w00 + ALB[k10 * 3] * w10 + ALB[k01 * 3] * w01 + ALB[k11 * 3] * w11;
+        let g = ALB[k00 * 3 + 1] * w00 + ALB[k10 * 3 + 1] * w10 + ALB[k01 * 3 + 1] * w01 + ALB[k11 * 3 + 1] * w11;
+        let b = ALB[k00 * 3 + 2] * w00 + ALB[k10 * 3 + 2] * w10 + ALB[k01 * 3 + 2] * w01 + ALB[k11 * 3 + 2] * w11;
+        let sh = SH[k00] * w00 + SH[k10] * w10 + SH[k01] * w01 + SH[k11] * w11;
+        let em = hasEm ? EM[k00] * w00 + EM[k10] * w10 + EM[k01] * w01 + EM[k11] * w11 : 0;
+        if (detail) {
+          const wD = W[k00 * 6] * w00 + W[k10 * 6] * w10 + W[k01 * 6] * w01 + W[k11 * 6] * w11;
+          const wS = W[k00 * 6 + 1] * w00 + W[k10 * 6 + 1] * w10 + W[k01 * 6 + 1] * w01 + W[k11 * 6 + 1] * w11;
+          const wC = W[k00 * 6 + 2] * w00 + W[k10 * 6 + 2] * w10 + W[k01 * 6 + 2] * w01 + W[k11 * 6 + 2] * w11;
+          const wG = W[k00 * 6 + 3] * w00 + W[k10 * 6 + 3] * w10 + W[k01 * 6 + 3] * w01 + W[k11 * 6 + 3] * w11;
+          const wB = W[k00 * 6 + 4] * w00 + W[k10 * 6 + 4] * w10 + W[k01 * 6 + 4] * w01 + W[k11 * 6 + 4] * w11;
+          const wL = W[k00 * 6 + 5] * w00 + W[k10 * 6 + 5] * w10 + W[k01 * 6 + 5] * w01 + W[k11 * 6 + 5] * w11;
+          let lit = 0, val = 0;
+          // sand ripples (crests lit on the sun side)
+          if (wS > 0.06) { const ph = (wx * wcx + wy * wcy) * 19.6 + 2.4 * T.gn(wx / 1.6, wy / 1.6, P.seed + 60); lit += wS * 0.085 * Math.sin(ph + 0.8); val += wS * 0.03 * Math.cos(ph); }
+          // dust: soft wind streaks
+          if (wD > 0.08) { const sk = T.gn((wx * wcx + wy * wcy) / 6, (-wx * wcy + wy * wcx) * 1.6, P.seed + 61); val += wD * 0.05 * sk; }
+          // crust: dried polygon cracks with a lit plate edge
+          const cm = T.ss(0.02, 0.4, T.gn(wx / 17, wy / 17, P.seed + 69));
+          if (wC > 0.15 && cm > 0.02) {
+            const sc = 0.75 + 1.1 * T.ss(-0.5, 0.5, T.gn(wx / 40, wy / 40, P.seed + 77));
+            const d = T.worley(wx / sc, wy / sc, P.seed + 62, cell);
+            const crack = (1 - T.ss(0.012, 0.06, d)) * cm * (fine ? 1 : 0.45);
+            val -= wC * crack * 0.22;
+            val += wC * ((cell[0] & 255) / 255 - 0.5) * 0.07 * cm;
+            if (st === 3) { val += wC * crack * 0.55; lit += wC * T.ss(0.06, 0.1, d) * 0.03; }
+          }
+          // gravel: many small stones in different colours with tiny shadows
+          if (wG > 0.08 && fine) {
+            const gx2 = wx / 0.17, gy2 = wy / 0.17, ix = Math.floor(gx2), iy = Math.floor(gy2);
+            const hh = T.hi(ix, iy, P.seed + 63);
+            if ((hh & 255) < 150 * Math.min(1, wG * 1.6)) {
+              const cxp = ix + 0.25 + ((hh >>> 8) & 127) / 254, cyp = iy + 0.25 + ((hh >>> 15) & 127) / 254;
+              const ddx = gx2 - cxp, ddy = gy2 - cyp, dd = ddx * ddx + ddy * ddy, rr = 0.08 + ((hh >>> 22) & 15) / 100;
+              if (dd < rr) { const tone = ((hh >>> 26) & 3); val += [0.16, -0.12, 0.06, 0.24][tone] * wG; lit += (-ddx - ddy) * 0.25 * wG; }
+              else if (dd < rr * 1.7 && ddx + ddy > 0) val -= 0.12 * wG;
+            }
+          } else if (wG > 0.08) val += (T.hf(Math.floor(wx * 5), Math.floor(wy * 5), P.seed + 63) - 0.5) * 0.18 * wG;
+          // bedrock: strata bands and joint cracks
+          if (wB > 0.1) {
+            const strata = Math.sin((wx * 0.62 + wy * 0.78) * 5.5 + 3 * T.gn(wx / 7, wy / 7, P.seed + 64));
+            val += wB * 0.07 * strata;
+            const d = T.worley(wx / 3.2, wy / 3.2, P.seed + 65, null);
+            val -= wB * (1 - T.ss(0.01, 0.05, d)) * 0.3;
+          }
+          // salt / mineral crust: bright polygons with darker rims and sparkle
+          if (wL > 0.1) {
+            const d = T.worley(wx / 2.3, wy / 2.3, P.seed + 66, cell);
+            const crack = 1 - T.ss(0.02, 0.09, d);
+            val -= wL * crack * 0.2; lit += wL * crack * 0.05;
+            if (fine && T.hf(Math.floor(wx * 9), Math.floor(wy * 9), P.seed + 67) > 0.992) { val += 0.5 * wL; if (hasEm) em += 0.4 * wL; }
+          }
+          // grain everywhere, visible but calm (single pixels plus small clumps), micro pits and bumps
+          val += (T.hf(px + x0 * res, py + y0 * res, P.seed + 68) - 0.5) * (fine ? 0.08 : 0.05);
+          if (fine) {
+            val += (T.hf((px + x0 * res) >> 1, (py + y0 * res) >> 1, P.seed + 78) - 0.5) * 0.07;
+            const mb = T.gn(wx * 2.6, wy * 2.6, P.seed + 79);
+            lit += mb * 0.09 * (1 - wS);
+            // scattered small stones on every ground type except dunes
+            const sx2 = wx / 0.45, sy2 = wy / 0.45, jx = Math.floor(sx2), jy = Math.floor(sy2);
+            const h2 = T.hi(jx, jy, P.seed + 80);
+            if ((h2 & 255) < 70 * (1 - wS) * (0.3 + wG + wB) * T.ss(-0.35, 0.45, T.gn(wx / 6, wy / 6, P.seed + 81))) {
+              const cxp = jx + 0.3 + ((h2 >>> 8) & 63) / 160, cyp = jy + 0.3 + ((h2 >>> 14) & 63) / 160;
+              const ddx = sx2 - cxp, ddy = sy2 - cyp, dd = ddx * ddx + ddy * ddy, rr = 0.02 + ((h2 >>> 20) & 15) / 400;
+              if (dd < rr) { val += [0.14, -0.16, 0.05, 0.22][(h2 >>> 24) & 3]; lit += (-ddx - ddy) * 1.2; }
+              else if (dd < rr * 2.2 && ddx + ddy > 0) val -= 0.16;
+            }
+          }
+          // planet detail
+          if (st === 6) { const gl = Math.min(Math.abs(((wx + 2) % 4 + 4) % 4 - 2), Math.abs(((wy + 2) % 4 + 4) % 4 - 2)); if (gl > 1.93 && T.gn(wx / 9, wy / 9, P.seed + 70) > -0.2) { em += 0.85; val += 0.15; } else if (gl > 1.9) val -= 0.08; }
+          if (st === 8) { const sp = T.hf(Math.floor(wx * 7), Math.floor(wy * 7), P.seed + 71); if (sp > 0.994) { em += 0.9; val += 0.6; } const rr2 = T.gn(wx / 40, wy / 40, P.seed + 72); lit += 0.05 * Math.sin(rr2 * 40); }
+          if (st === 7 && wC > 0.2) { T.worley(wx / 1.1, wy / 1.1, P.seed + 73, cell); lit += ((cell[0] & 255) / 255 - 0.5) * 0.2 * wC; if (T.hf(Math.floor(wx * 8), Math.floor(wy * 8), P.seed + 74) > 0.993) em += 0.6; }
+          if (st === 5) { const moss = T.fbm(wx / 6, wy / 6, P.seed + 75, 2); if (moss > 0.2) { const mk = T.ss(0.2, 0.45, moss) * (1 - wS); val += (T.hf(Math.floor(wx * 6), Math.floor(wy * 6), P.seed + 76) - 0.5) * 0.25 * mk; } }
+          sh *= 1 + lit;
+          r *= 1 + val; g *= 1 + val; b *= 1 + val;
+        }
+        // shading with cool violet-brown shadows (never black) and warm light
+        let lr, lg, lb;
+        if (sh < 1) { const t = 1 - sh; lr = r * sh + shR * t * 0.55; lg = g * sh + shG * t * 0.55; lb = b * sh + shB * t * 0.55; }
+        else { const t = sh - 1; lr = r * (1 + t * 0.95); lg = g * (1 + t * 0.85); lb = b * (1 + t * 0.7); }
+        const o4 = (py * PW + px) * 4;
+        rgba[o4] = lr * 255; rgba[o4 + 1] = lg * 255; rgba[o4 + 2] = lb * 255; rgba[o4 + 3] = 255;
+        if (emis && em > 0.02) {
+          const e = em > 1 ? 1 : em;
+          let er, eg, eb;
+          if (P.emis === 'lava') { er = 255; eg = 90 + e * 120; eb = 20; }
+          else if (P.emis === 'grid') { er = 90; eg = 230; eb = 255; }
+          else if (P.emis === 'bio') { er = 80; eg = 255; eb = 190; }
+          else if (P.emis === 'void') { er = 210; eg = 210; eb = 255; }
+          else if (P.emis === 'patina') { er = 90; eg = 255; eb = 220; }
+          else { er = 230; eg = 245; eb = 255; }
+          emis[o4] = er; emis[o4 + 1] = eg; emis[o4 + 2] = eb; emis[o4 + 3] = e * 255;
+        }
+      }
+      if ((py & 31) === 31) yield;
+    }
+    return { w: PW, h: PW, rgba, emis, mats: GD.mats, props: GD.props, lms: GD.lms };
+  },
+
+  // ---------------- rock and prop instances (density-driven, clustered, never uniform) ----------------
+  props(cx, cy, S, P, C, A, N, GS, PAD, W) {
+    const T = TerrainCore, out = [];
+    const x0 = cx * S, y0 = cy * S;
+    const at = (x, y) => { const i = Math.max(0, Math.min(N - 1, Math.round((x - x0) * GS + PAD - 0.5))), j = Math.max(0, Math.min(N - 1, Math.round((y - y0) * GS + PAD - 0.5))); return j * N + i; };
+    const nearDep = (x, y) => { for (const d of C.deps) if (Math.hypot(x - d.x, y - d.y) < d.r + 1.6) return true; return false; };
+    const geo = k => { const wB = W[k * 6 + 4], wL = W[k * 6 + 5], wG = W[k * 6 + 3]; return wL > 0.35 ? 2 : wB > 0.35 ? 0 : wG > 0.3 ? 3 : 1; };
+    // clusters
+    for (let by = 0; by < S; by += 8) for (let bx = 0; bx < S; bx += 8) {
+      const rnd = T.rng(T.hi(cx * 4 + bx / 8, cy * 4 + by / 8, P.seed + 8001));
+      for (let t = 0; t < 3; t++) {
+        const x = x0 + bx + rnd() * 8, y = y0 + by + rnd() * 8;
+        const k = at(x, y), a = k * 13;
+        const dens = A[a + 2] * 1.4 + A[a + 3] * 1.1 + A[a + 6] * 0.9 + A[a + 7] * 1.2 + W[k * 6 + 3] * 0.8 + W[k * 6 + 4] * 0.6 - W[k * 6 + 1] * 0.8 - W[k * 6] * 0.4 - A[a + 5] * 0.6;
+        if (rnd() > dens * 0.55 || nearDep(x, y)) continue;
+        const g = geo(k);
+        const n = 3 + Math.floor(rnd() * 6);
+        const bigCls = rnd() < 0.25 ? 3 : 2;
+        out.push(['rock', Math.floor(rnd() * 6), x, y, bigCls, g, rnd() < 0.15 ? 1 : 0]);
+        for (let m = 0; m < n; m++) {
+          const aa = rnd() * 6.283, dd = 0.6 + rnd() * 1.8, xx = x + Math.cos(aa) * dd, yy = y + Math.sin(aa) * dd * 0.8;
+          if (nearDep(xx, yy)) continue;
+          out.push([rnd() < 0.45 ? 'pebbles' : 'rock', Math.floor(rnd() * 6), xx, yy, rnd() < 0.7 ? 0 : 1, g, 0]);
+        }
+      }
+    }
+    // scattered singles following density
+    const rnd = T.rng(T.hi(cx, cy, P.seed + 8101));
+    for (let i = 0; i < 46; i++) {
+      const x = x0 + rnd() * S, y = y0 + rnd() * S;
+      const k = at(x, y), a = k * 13;
+      const dens = 0.35 + A[a + 2] + A[a + 3] * 0.8 + W[k * 6 + 4] * 0.7 + W[k * 6 + 3] * 0.6 - W[k * 6 + 1] * 0.9 - A[a + 5] * 0.5;
+      if (rnd() > dens * 0.6 || nearDep(x, y)) continue;
+      out.push([rnd() < 0.5 ? 'pebbles' : 'rock', Math.floor(rnd() * 6), x, y, rnd() < 0.85 ? 0 : 1, geo(k), 0]);
+    }
+    // planet props
+    const pr = { 2: 'patina', 3: 'ice', 4: 'lavarock', 5: 'flora', 6: 'pylon', 7: 'crystal', 8: 'voidshard' }[P.style];
+    if (pr) for (let i = 0; i < 10; i++) {
+      const x = x0 + rnd() * S, y = y0 + rnd() * S, k = at(x, y);
+      if (nearDep(x, y) || W[k * 6 + 1] > 0.5) continue;
+      if (rnd() < 0.55) out.push([pr, Math.floor(rnd() * 4), x, y, rnd() < 0.3 ? 1 : 0, 0, 0]);
+    }
+    // landmarks inside this chunk
+    for (const lm of C.lms) {
+      if (lm.x < x0 || lm.x >= x0 + S || lm.y < y0 || lm.y >= y0 + S) continue;
+      if (lm.type === 'wreck') {
+        out.push(['wreck', lm.wreck, lm.x, lm.y, 2, 0, 0]);
+        const r2 = T.rng(lm.seed);
+        for (let i = 0; i < 9; i++) { const a = r2() * 6.283, d = 1 + r2() * 3; out.push(['debris', Math.floor(r2() * 4), lm.x + Math.cos(a) * d, lm.y + Math.sin(a) * d * 0.7, 0, 0, 0]); }
+      } else if (lm.type === 'devils') {
+        const r2 = T.rng(lm.seed);
+        for (let i = 0; i < 6; i++) out.push(['devtrack', Math.floor(r2() * 4), lm.x + (r2() - 0.5) * 24, lm.y + (r2() - 0.5) * 24, 1, 0, 0]);
+      }
+    }
+    out.sort((a, b) => a[3] - b[3]);
+    return out;
+  },
+
+  // cheap single-point colour for overviews (no craters)
+  sampleColor(x, y, P, out) {
+    const T = TerrainCore; T.init();
+    const o = new Float32Array(13);
+    T.field(x, y, P, { craters: [], lms: [], deps: [] }, o);
+    const c = P.col;
+    const wS = o[1] * 1.6, wB = o[6] * 1.3, wL = o[5] * 1.6, wC = 0.6, sum = wS + wB + wL + wC;
+    for (let i = 0; i < 3; i++) out[i] = ((c[1][i] * wS + c[4][i] * wB + c[5][i] * wL + c[2][i] * wC) / sum) * 255 * (1 + o[0] * 0.03);
+  }
+};
+
+// ===== src/app/03u_terrainsys.js =====
+// =====================================================================
+// TerrainSys: main-thread manager for baked terrain chunks.
+// Up to two Web Workers (built from TerrainCore's own source, so it all
+// stays inside this single file), a main-thread fallback in 2 ms time
+// slices, an LRU cache with a memory budget, four detail levels with
+// cross-fades, look-ahead prefetching, and the rock/prop layer.
+// =====================================================================
+const TerrainSys = {
+  LEVELS: [4, 10, 20, 34],
+  workers: [], idle: [], queue: [], inflight: new Map(),
+  cache: new Map(), bytes: 0,
+  P: null, gen: 0, fallback: null, ok: true,
+  budget() { return App.touch ? 110e6 : 190e6; },
+  source() {
+    const parts = [];
+    for (const [k, v] of Object.entries(TerrainCore)) {
+      if (typeof v === 'function') parts.push(v.toString());
+      else parts.push(k + ': ' + JSON.stringify(k === 'GT' || k === '_gc' ? null : v));
+    }
+    return 'const TerrainCore = {\n' + parts.join(',\n') + '\n};\n' +
+      'self.onmessage = e => { const j = e.data; let r;\n' +
+      ' try { r = TerrainCore.bake(j); } catch (err) { self.postMessage({ key: j.key, gen: j.gen, error: String(err) }); return; }\n' +
+      ' const msg = { key: j.key, gen: j.gen, w: r.w, h: r.h, mats: r.mats, props: r.props, lms: r.lms }; const tr = [];\n' +
+      ' if (typeof OffscreenCanvas !== "undefined") {\n' +
+      '  const oc = new OffscreenCanvas(r.w, r.h); oc.getContext("2d").putImageData(new ImageData(r.rgba, r.w, r.h), 0, 0); msg.bmp = oc.transferToImageBitmap(); tr.push(msg.bmp);\n' +
+      '  if (r.emis) { const oe = new OffscreenCanvas(r.w, r.h); oe.getContext("2d").putImageData(new ImageData(r.emis, r.w, r.h), 0, 0); msg.ebmp = oe.transferToImageBitmap(); tr.push(msg.ebmp); }\n' +
+      ' } else { msg.rgba = r.rgba; tr.push(r.rgba.buffer); if (r.emis) { msg.emis = r.emis; tr.push(r.emis.buffer); } }\n' +
+      ' self.postMessage(msg, tr); };';
+  },
+  init() {
+    TerrainCore.init();
+    if (TerrainSys.workers.length || !window.Worker || !window.Blob) return;
+    try {
+      const url = URL.createObjectURL(new Blob([TerrainSys.source()], { type: 'text/javascript' }));
+      const n = Math.max(1, Math.min(2, (navigator.hardwareConcurrency || 2) - 1));
+      for (let i = 0; i < n; i++) {
+        const w = new Worker(url);
+        w.onmessage = e => TerrainSys.onResult(w, e.data);
+        w.onerror = () => { TerrainSys.workers = TerrainSys.workers.filter(x => x !== w); TerrainSys.idle = TerrainSys.idle.filter(x => x !== w); };
+        TerrainSys.workers.push(w); TerrainSys.idle.push(w);
+      }
+    } catch (e) { TerrainSys.workers = []; TerrainSys.idle = []; }
+  },
+  setPlanet(planet, seed) {
+    TerrainSys.init();
+    TerrainSys.P = TerrainCore.params(planet, seed);
+    TerrainSys.P.landing = [CONFIG.landing.x, CONFIG.landing.y];
+    TerrainSys.gen++;
+    TerrainSys.cache.clear(); TerrainSys.bytes = 0; TerrainSys.queue.length = 0; TerrainSys.inflight.clear(); TerrainSys.fallback = null;
+    if (TerrainCore._gc) TerrainCore._gc.clear();
+    TerrainSys.idle = TerrainSys.workers.slice();
+    TerrainSys.matCache = new Map();
+  },
+  key(cx, cy, L) { return cx + ',' + cy + ',' + L; },
+  levelFor(ppt) {
+    const L = TerrainSys.LEVELS, q = App.quality === 'low' ? 2 : 3;
+    for (let i = 0; i <= q; i++) if (L[i] >= ppt * 0.8) return i;
+    return q;
+  },
+  depsFor(g, cx, cy) {
+    const S = CONFIG.chunkSize;
+    const list = World.depositsInRect(g.world, cx * S - 5, cy * S - 5, (cx + 1) * S + 5, (cy + 1) * S + 5);
+    return list.map(d => {
+      let sx = 0, sy = 0; for (const t of d.tiles) { sx += t[0] + 0.5; sy += t[1] + 0.5; }
+      return { x: sx / d.tiles.length, y: sy / d.tiles.length, r: 0.7 + Math.sqrt(d.tiles.length) * 0.55, tier: d.tier, col: DATA.RESOURCES[d.res].color };
+    });
+  },
+  request(g, cx, cy, L, prio) {
+    const key = TerrainSys.key(cx, cy, L);
+    if (TerrainSys.cache.has(key) || TerrainSys.inflight.has(key)) return;
+    const q = TerrainSys.queue.find(j => j.key === key);
+    if (q) { q.prio = Math.min(q.prio, prio); return; }
+    const deps = TerrainSys.depsFor(g, cx, cy);
+    TerrainSys.queue.push({ key, cx, cy, L, prio, S: CONFIG.chunkSize, res: TerrainSys.LEVELS[L], P: TerrainSys.P, deps, depKey: deps.length + ':' + deps.map(d => d.x.toFixed(1)).join(','), gen: TerrainSys.gen });
+  },
+  pump() {
+    const Q = TerrainSys.queue;
+    if (!Q.length) return;
+    Q.sort((a, b) => a.prio - b.prio);
+    if (Q.length > 60) Q.length = 60;
+    if (TerrainSys.workers.length) {
+      while (TerrainSys.idle.length && Q.length) {
+        const j = Q.shift(), w = TerrainSys.idle.pop();
+        TerrainSys.inflight.set(j.key, j);
+        w.postMessage(j);
+      }
+      return;
+    }
+    // fallback: bake on the main thread in time slices (max ~2 ms per frame)
+    const t0 = performance.now();
+    if (!TerrainSys.fallback) { const j = Q.shift(); TerrainSys.fallback = { job: j, it: TerrainCore.bakeIter(j) }; }
+    const F = TerrainSys.fallback;
+    let r;
+    do { r = F.it.next(); } while (!r.done && performance.now() - t0 < 2);
+    if (r.done) {
+      TerrainSys.fallback = null;
+      const v = r.value;
+      TerrainSys.store(F.job, { w: v.w, h: v.h, rgba: v.rgba, emis: v.emis, mats: v.mats, props: v.props, lms: v.lms });
+    }
+  },
+  onResult(w, m) {
+    TerrainSys.idle.push(w);
+    const job = TerrainSys.inflight.get(m.key);
+    TerrainSys.inflight.delete(m.key);
+    if (!job || m.gen !== TerrainSys.gen || m.error) return;
+    TerrainSys.store(job, m);
+  },
+  store(job, m) {
+    let img = m.bmp, em = m.ebmp || null;
+    if (!img) {
+      const c = Art.canvas(m.w, m.h); c.getContext('2d').putImageData(new ImageData(m.rgba, m.w, m.h), 0, 0); img = c;
+      if (m.emis) { const e = Art.canvas(m.w, m.h); e.getContext('2d').putImageData(new ImageData(m.emis, m.w, m.h), 0, 0); em = e; }
+    }
+    const bytes = m.w * m.h * 4 * (em ? 2 : 1);
+    const S = CONFIG.chunkSize;
+    const e = { img, em, mats: m.mats, props: m.props, lms: m.lms, L: job.L, bytes, used: App.frame, born: App.now, comp: null, ox: job.cx * S, oy: job.cy * S };
+    TerrainSys.cache.set(job.key, e);
+    TerrainSys.bytes += bytes;
+    TerrainSys.matCache.set(job.cx + ',' + job.cy, m.mats);
+    if (m.lms) for (const l of m.lms) TerrainSys.landmarks.set(l.x.toFixed(1) + ',' + l.y.toFixed(1), l);
+    TerrainSys.evict();
+  },
+  landmarks: new Map(),
+  evict() {
+    if (TerrainSys.bytes <= TerrainSys.budget()) return;
+    const arr = [...TerrainSys.cache.entries()].sort((a, b) => a[1].used - b[1].used);
+    for (const [k, e] of arr) {
+      if (TerrainSys.bytes <= TerrainSys.budget() * 0.8 || e.used >= App.frame - 2) break;
+      TerrainSys.cache.delete(k); TerrainSys.bytes -= e.bytes + (e.comp ? e.comp.width * e.comp.height * 4 : 0);
+      if (e.img && e.img.close) e.img.close();
+    }
+  },
+  // best available image for a chunk: exact level, else the nearest other level
+  best(cx, cy, L) {
+    const C = TerrainSys.cache;
+    let e = C.get(TerrainSys.key(cx, cy, L));
+    if (e) return e;
+    for (let d = 1; d < 4; d++) {
+      e = C.get(TerrainSys.key(cx, cy, L - d)); if (e) return e;
+      e = C.get(TerrainSys.key(cx, cy, L + d)); if (e) return e;
+    }
+    return null;
+  },
+  matAt(x, y) {
+    const S = CONFIG.chunkSize, cx = Math.floor(x / S), cy = Math.floor(y / S);
+    const m = TerrainSys.matCache && TerrainSys.matCache.get(cx + ',' + cy);
+    if (!m) return 2;
+    return m[(Math.floor(y) - cy * S) * S + (Math.floor(x) - cx * S)];
+  },
+
+  // ---------------- drawing ----------------
+  draw(ctx, g, vr) {
+    if (!TerrainSys.P) return;
+    const S = CONFIG.chunkSize, ppt = Render.ppt();
+    const L = TerrainSys.levelFor(ppt);
+    const bakeProps = ppt <= 24;
+    TerrainSys.liveProps = !bakeProps;
+    const cx0 = Math.floor(vr.x0 / S), cy0 = Math.floor(vr.y0 / S), cx1 = Math.floor(vr.x1 / S), cy1 = Math.floor(vr.y1 / S);
+    const ccx = App.cam.x / S, ccy = App.cam.y / S;
+    const P = Render.palette;
+    ctx.imageSmoothingEnabled = true;
+    let comps = 1;
+    TerrainSys.visible = TerrainSys.visible || [];
+    TerrainSys.visible.length = 0;
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const dist = Math.hypot(cx + 0.5 - ccx, cy + 0.5 - ccy);
+      // coarse level first so nothing is ever empty, then the needed level
+      if (!TerrainSys.cache.has(TerrainSys.key(cx, cy, 0))) TerrainSys.request(g, cx, cy, 0, dist);
+      TerrainSys.request(g, cx, cy, L, 2 + dist);
+      const e = TerrainSys.best(cx, cy, L);
+      const rx = cx * S - Render.ox, ry = cy * S - Render.oy;
+      if (!e) { ctx.fillStyle = P.ground[1]; ctx.fillRect(rx, ry, S + 0.02, S + 0.02); continue; }
+      e.used = App.frame;
+      TerrainSys.visible.push(e);
+      // cross-fade from the previously shown level of this chunk
+      const ck = cx + ',' + cy, prev = TerrainSys.shown.get(ck);
+      if (prev && prev.e !== e && prev.e.L !== e.L && !prev.fading) { prev.fading = true; prev.from = prev.e; prev.t0 = App.now; prev.e = e; }
+      else if (!prev) TerrainSys.shown.set(ck, { e, fading: false });
+      const st = TerrainSys.shown.get(ck);
+      let img = e.img;
+      if (bakeProps) {
+        if ((!e.comp || e.compL !== L) && e.props && e.props.length && comps-- > 0) { e.comp = TerrainSys.composite(e); e.compL = L; }
+        if (e.comp) img = e.comp;
+      }
+      if (st.fading && !App.settings.reducedFx) {
+        const k = (App.now - st.t0) / 180;
+        if (k >= 1) st.fading = false;
+        else { ctx.drawImage(st.from.comp && bakeProps ? st.from.comp : st.from.img, rx, ry, S + 0.02, S + 0.02); ctx.globalAlpha = k; ctx.drawImage(img, rx, ry, S + 0.02, S + 0.02); ctx.globalAlpha = 1; continue; }
+      }
+      ctx.drawImage(img, rx, ry, S + 0.02, S + 0.02);
+    }
+    if (TerrainSys.shown.size > 300) TerrainSys.shown.clear();
+    // look-ahead: prefetch the ring of chunks in the walking direction
+    const p = g.run.player, vx = p.vx || 0, vy = p.vy || 0, sp = Math.hypot(vx, vy);
+    if (sp > 0.5) {
+      const ax = Math.round(vx / sp), ay = Math.round(vy / sp);
+      for (let i = -1; i <= 1; i++) {
+        const tx = Math.floor((ax ? (ax > 0 ? vr.x1 : vr.x0) : App.cam.x) / S) + ax + (ax ? 0 : i), ty = Math.floor((ay ? (ay > 0 ? vr.y1 : vr.y0) : App.cam.y) / S) + ay + (ay ? 0 : i);
+        TerrainSys.request(g, tx, ty, Math.max(0, L - 1), 6);
+      }
+    }
+    TerrainSys.pump();
+  },
+  shown: new Map(),
+  composite(e) {
+    const S = CONFIG.chunkSize, w = e.img.width, ppt = w / S;
+    const c = Art.canvas(w, w), x = c.getContext('2d');
+    x.drawImage(e.img, 0, 0);
+    // chunk origin from any prop is not needed: props carry world coords; recover origin from the cache key
+    x.setTransform(ppt, 0, 0, ppt, -e.ox * ppt, -e.oy * ppt);
+    for (const pr of e.props) RockArt.draw(x, pr, 0, 0, ppt);
+    return c;
+  },
+  // live props at close zoom (crisp, culled)
+  drawProps(ctx, vr) {
+    if (!TerrainSys.liveProps) return;
+    const ppt = Render.ppt();
+    for (const e of TerrainSys.visible) {
+      if (!e.props) continue;
+      for (const pr of e.props) {
+        if (pr[2] < vr.x0 - 3 || pr[2] > vr.x1 + 3 || pr[3] < vr.y0 - 3 || pr[3] > vr.y1 + 3) continue;
+        RockArt.draw(ctx, pr, Render.ox, Render.oy, ppt);
+      }
+    }
+  },
+  // night emission (lava, grid lines, bioluminescence, sparkles), additive after the grade
+  drawEmission(ctx, night, tm) {
+    if (!TerrainSys.P || !TerrainSys.P.emis || !TerrainSys.visible) return;
+    const S = CONFIG.chunkSize;
+    const pulse = TerrainSys.P.emis === 'lava' ? 0.8 + 0.2 * Math.sin(tm * 1.7) : 0.9 + 0.1 * Math.sin(tm * 0.9);
+    const a = (0.25 + night * 0.75) * pulse;
+    if (a < 0.02) return;
+    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a;
+    for (const e of TerrainSys.visible) if (e.em) ctx.drawImage(e.em, e.ox * 1 - Render.ox, e.oy - Render.oy, S + 0.02, S + 0.02);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  }
+};
+
+// ===== src/app/03v_rocks.js =====
+// =====================================================================
+// RockArt: rock and prop sprites placed by the terrain (density driven).
+// 4 size classes (pebble group, boulder, findling, slab) x 6 shapes x
+// 4 geologies (basalt, sandstone, salt/gypsum, iron oxide) + mineral veins,
+// planet props, wrecks and debris. Each sprite carries its own AO, a
+// shadow towards the bottom right, a dust lip and a half-buried base.
+// =====================================================================
+const RockArt = {
+  SIZE: [0.38, 0.72, 1.25, 2.1],
+  hex(c) { return Col.hex(c[0] * 255, c[1] * 255, c[2] * 255); },
+  geoColor(geo) {
+    const P = TerrainSys.P, c = P.col;
+    const base = [c[4], c[2], c[5], c[3]][geo] || c[2];
+    const tint = ['#5e5862', '#a8694a', '#ddd3c2', '#8e5236'][geo];
+    return Col.mix(RockArt.hex(base), tint, P.style <= 2 ? 0.45 : 0.2);
+  },
+  sprite(kind, v, cls, geo, flag, ppt) {
+    return Art.cached('P|RK|' + kind + '|' + v + '|' + cls + '|' + geo + '|' + flag + '|' + ppt, () => RockArt.make(kind, v, cls, geo, flag, ppt));
+  },
+  draw(ctx, pr, ox, oy, ppt) {
+    const [kind, v, x, y, cls, geo, flag] = pr;
+    const bucket = Art.bucket(ppt, 96);
+    const s = RockArt.sprite(kind, v, cls, geo, flag, bucket);
+    ctx.drawImage(s.canvas, x - ox - s.ax, y - oy - s.ay, s.w, s.h);
+  },
+  make(kind, v, cls, geo, flag, ppt) {
+    const P = TerrainSys.P;
+    const sz = kind === 'rock' ? RockArt.SIZE[cls] : kind === 'pebbles' ? 0.9 : kind === 'wreck' ? 2.6 : kind === 'devtrack' ? 3 : kind === 'debris' ? 0.5 : 0.8 + cls * 0.5;
+    const W = sz * 2.0 + 0.4, H = sz * 1.7 + 0.4;
+    const c = Art.canvas(W * ppt, H * ppt), x = c.getContext('2d');
+    x.scale(ppt, ppt); x.translate(W * 0.42, H * 0.62);
+    x.lineJoin = 'round'; x.lineCap = 'round';
+    const rnd = RNG.mulberry32(RNG.hash(RNG.hashString(kind), v * 31 + cls, geo * 7 + flag));
+    const dustCol = RockArt.hex(P.col[0]), shadowCol = RockArt.hex(P.shadow);
+    const wa = P.wind;
+    const shadow = (w, h, hh) => { x.fillStyle = Col.rgba(shadowCol, 0.32); x.beginPath(); x.ellipse(hh * 0.42, hh * 0.22, w * 1.05, h * 0.75, 0.25, 0, Math.PI * 2); x.fill(); };
+    const lip = (w, h) => {
+      // dust lip and a sand tongue in the lee (wind direction)
+      x.fillStyle = Col.rgba(Col.shade(dustCol, 0.18), 0.45); x.beginPath(); x.ellipse(0, h * 0.18, w * 1.15, h * 0.5, 0, 0, Math.PI * 2); x.fill();
+      x.save(); x.rotate(wa); x.fillStyle = Col.rgba(Col.shade(dustCol, 0.1), 0.35); x.beginPath(); x.moveTo(w * 0.2, -h * 0.25); x.quadraticCurveTo(w * 2.4, 0, w * 0.2, h * 0.3); x.fill(); x.restore();
+      x.fillStyle = 'rgba(0,0,0,.22)'; x.beginPath(); x.ellipse(0.02, h * 0.05, w * 0.95, h * 0.35, 0, 0, Math.PI * 2); x.fill();
+    };
+    const bury = (w, h, top) => {
+      const g = x.createLinearGradient(0, top + h * 0.55, 0, h * 0.2);
+      g.addColorStop(0, Col.rgba(dustCol, 0)); g.addColorStop(1, Col.rgba(dustCol, 0.75));
+      x.fillStyle = g; x.fillRect(-w * 1.2, top + h * 0.5, w * 2.4, h);
+    };
+    if (kind === 'rock') {
+      const col = RockArt.geoColor(geo), t = Art.tones(col);
+      const w = sz * (0.55 + rnd() * 0.25), hh = sz * (cls === 3 ? 0.22 : 0.45 + rnd() * 0.35), d = sz * 0.42;
+      shadow(w, d, hh); lip(w, d);
+      if (cls === 3) {
+        // flat slab with strata and a lit edge
+        const pts = Art.blobPts(rnd, 0, -hh * 0.5, w * 1.15, d * 0.85, 9, 0.22, rnd());
+        x.fillStyle = t.lo; x.save(); x.translate(0, hh * 0.5); Art.poly(x, pts); x.fill(); x.restore();
+        Art.facets(x, pts, -w * 0.25, -hh, t, { lw: 0.025, flat: true });
+        x.strokeStyle = Col.rgba(t.lo, 0.6); x.lineWidth = 0.025;
+        for (let i = 1; i < 4; i++) { x.beginPath(); x.moveTo(-w * 0.9, -hh * 0.5 + i * d * 0.22 - d * 0.4); x.quadraticCurveTo(0, -hh * 0.5 + i * d * 0.22 - d * 0.5, w * 0.9, -hh * 0.5 + i * d * 0.22 - d * 0.35); x.stroke(); }
+        x.strokeStyle = Col.rgba(t.rim, 0.8); x.lineWidth = 0.03; Art.polyline(x, pts.slice(Math.floor(pts.length * 0.45), Math.floor(pts.length * 0.85))); x.stroke();
+      } else {
+        const n = 6 + (v % 3);
+        const pts = Art.blobPts(rnd, 0, -hh * 0.55, w, hh * 0.75 + d * 0.3, n, 0.32 + (v % 2) * 0.1, rnd());
+        Art.facets(x, pts, -w * 0.28, -hh * 0.8, t, { lw: 0.025 + sz * 0.02 });
+        // light edge (top left) and a few speckles
+        x.strokeStyle = Col.rgba(t.rim, 0.7); x.lineWidth = 0.022;
+        Art.polyline(x, pts.slice(Math.floor(n * 0.45), Math.floor(n * 0.85) + 1)); x.stroke();
+        for (let i = 0; i < 4 + cls * 3; i++) { x.fillStyle = Col.rgba(i % 2 ? t.hi : t.lo, 0.5); x.fillRect((rnd() - 0.5) * w * 1.2, -hh * 0.55 + (rnd() - 0.5) * hh, 0.025, 0.025); }
+        if (flag) { // mineral vein with a glint
+          x.strokeStyle = Col.rgba(P.style === 4 ? '#ff8a3a' : '#f0e0a0', 0.9); x.lineWidth = 0.03;
+          x.beginPath(); x.moveTo(-w * 0.6, -hh * 0.3); x.lineTo(-w * 0.1, -hh * 0.7); x.lineTo(w * 0.4, -hh * 0.5); x.stroke();
+          Art.glint(x, -w * 0.1, -hh * 0.7, 0.08 + sz * 0.05);
+        }
+        if (P.style === 3) { x.fillStyle = 'rgba(240,250,255,.7)'; x.beginPath(); x.ellipse(-w * 0.1, -hh * 1.1, w * 0.6, hh * 0.25, 0, 0, Math.PI * 2); x.fill(); }
+        if (P.style === 5 && geo !== 2) { x.fillStyle = 'rgba(100,190,110,.55)'; x.beginPath(); x.ellipse(w * 0.2, -hh * 1.0, w * 0.5, hh * 0.22, 0, 0, Math.PI * 2); x.fill(); }
+        bury(w, d, -hh * 0.2);
+      }
+    } else if (kind === 'pebbles') {
+      const n = 4 + (v % 4);
+      for (let i = 0; i < n; i++) {
+        const px = (rnd() - 0.5) * sz * 1.1, py = (rnd() - 0.5) * sz * 0.5, r = 0.04 + rnd() * 0.06;
+        const col = Col.shade(RockArt.geoColor((geo + i) % 4), (rnd() - 0.5) * 0.3), t = Art.tones(col);
+        x.fillStyle = Col.rgba(shadowCol, 0.35); x.beginPath(); x.ellipse(px + r * 0.6, py + r * 0.4, r * 1.05, r * 0.55, 0, 0, Math.PI * 2); x.fill();
+        x.fillStyle = t.base; x.beginPath(); x.ellipse(px, py, r, r * 0.75, rnd() * 3, 0, Math.PI * 2); x.fill();
+        x.fillStyle = Col.rgba(t.rim, 0.7); x.beginPath(); x.arc(px - r * 0.3, py - r * 0.3, r * 0.35, 0, Math.PI * 2); x.fill();
+      }
+    } else if (kind === 'debris') {
+      const t = Art.pal(v % 2 ? 'steel' : 'anth');
+      for (let i = 0; i < 3; i++) { x.save(); x.translate((rnd() - 0.5) * 0.4, (rnd() - 0.5) * 0.2); x.rotate(rnd() * 3); x.fillStyle = Col.rgba(shadowCol, 0.3); x.fillRect(0.03, 0.03, 0.18, 0.06); x.fillStyle = t.base; x.fillRect(0, 0, 0.18, 0.06); x.fillStyle = t.hi; x.fillRect(0, 0, 0.18, 0.015); x.restore(); }
+    } else if (kind === 'devtrack') {
+      x.strokeStyle = Col.rgba(Col.shade(dustCol, -0.35), 0.35); x.lineWidth = 0.12;
+      x.beginPath(); let px = -sz, py = 0;
+      x.moveTo(px, py);
+      for (let i = 0; i < 40; i++) { const a = i * 0.55; px += 0.08; py = Math.sin(i * 0.3) * 0.4; x.lineTo(px + Math.cos(a) * 0.25, py + Math.sin(a) * 0.15); }
+      x.stroke();
+    } else if (kind === 'wreck') {
+      RockArt.wreck(x, v, rnd, dustCol, shadowCol);
+    } else {
+      RockArt.planetProp(x, kind, v, cls, rnd, dustCol, shadowCol);
+    }
+    return { canvas: c, w: W, h: H, ax: W * 0.42, ay: H * 0.62 };
+  },
+  wreck(x, v, rnd, dustCol, shadowCol) {
+    const steel = Art.pal('steel'), anth = Art.pal('anth'), white = Art.pal('white'), orange = Art.pal('orange');
+    x.fillStyle = Col.rgba(Col.shade(dustCol, -0.3), 0.35); x.beginPath(); x.ellipse(0.2, 0.15, 1.6, 0.7, 0, 0, Math.PI * 2); x.fill();
+    const dusty = () => { x.fillStyle = Col.rgba(dustCol, 0.35); x.beginPath(); x.ellipse(0, 0.1, 1.2, 0.35, 0, 0, Math.PI * 2); x.fill(); };
+    if (v === 0) { // crashed probe
+      x.fillStyle = Col.rgba(shadowCol, 0.35); x.beginPath(); x.ellipse(0.4, 0.2, 0.8, 0.35, 0, 0, Math.PI * 2); x.fill();
+      BuildingArt.sphere(x, 0, -0.35, 0.45, white);
+      x.fillStyle = '#2a3a5a'; x.save(); x.rotate(-0.3); x.fillRect(0.4, -0.55, 0.9, 0.35); x.strokeStyle = '#7fb0ff'; x.lineWidth = 0.02; x.strokeRect(0.4, -0.55, 0.9, 0.35); x.restore();
+      x.strokeStyle = steel.base; x.lineWidth = 0.04; x.beginPath(); x.moveTo(-0.2, -0.7); x.lineTo(-0.6, -1.3); x.stroke();
+    } else if (v === 1) { // old rover
+      Art.box(x, -0.9, -0.35, 1.8, 0.6, 0.45, Art.tones('#b8aa98'), { r: 0.06, lw: 0.025 });
+      for (const wx of [-0.7, 0, 0.7]) { x.fillStyle = '#2a2a2e'; x.beginPath(); x.ellipse(wx, 0.3, 0.2, 0.12, 0, 0, Math.PI * 2); x.fill(); }
+      x.strokeStyle = steel.lo; x.lineWidth = 0.04; x.beginPath(); x.moveTo(0.5, -0.6); x.lineTo(0.7, -1.1); x.stroke();
+      x.fillStyle = Col.rgba(dustCol, 0.5); x.fillRect(-0.9, -0.62, 1.8, 0.25);
+      x.strokeStyle = Col.rgba(Col.shade(dustCol, -0.3), 0.4); x.lineWidth = 0.08; x.beginPath(); x.moveTo(-1.0, 0.55); x.quadraticCurveTo(-2, 0.9, -3, 0.6); x.moveTo(-1.0, 0.1); x.quadraticCurveTo(-2, 0.4, -3, 0.15); x.stroke();
+    } else if (v === 2) { // fallen antenna mast
+      x.save(); x.rotate(0.2);
+      x.strokeStyle = steel.edge; x.lineWidth = 0.08; x.beginPath(); x.moveTo(-1.4, 0); x.lineTo(1.2, -0.2); x.stroke();
+      x.strokeStyle = steel.base; x.lineWidth = 0.04; x.beginPath(); for (let i = 0; i < 8; i++) { x.moveTo(-1.3 + i * 0.32, -0.1); x.lineTo(-1.15 + i * 0.32, 0.06); } x.stroke();
+      BuildingArt.dish(x, 1.25, -0.25, 0.4, 1);
+      x.restore();
+    } else if (v === 3) { // solar panel debris
+      for (let i = 0; i < 4; i++) { x.save(); x.translate((i - 1.5) * 0.55, (i % 2) * 0.2); x.rotate((rnd() - 0.5) * 0.8); x.fillStyle = Col.rgba(shadowCol, 0.3); x.fillRect(0.05, 0.05, 0.5, 0.32); x.fillStyle = '#26365a'; x.fillRect(0, 0, 0.5, 0.32); x.strokeStyle = '#7fb0ff'; x.lineWidth = 0.015; x.strokeRect(0, 0, 0.5, 0.32); x.beginPath(); x.moveTo(0.25, 0); x.lineTo(0.25, 0.32); x.stroke(); x.restore(); }
+    } else if (v === 4) { // weathered flag
+      BuildingArt.mast(x, 0, 0.1, 1.5, 0.05, white);
+      x.fillStyle = Col.mix(orange.base, dustCol, 0.5); x.beginPath(); x.moveTo(0.03, -1.35); x.quadraticCurveTo(0.35, -1.2, 0.6, -1.32); x.lineTo(0.55, -1.05); x.quadraticCurveTo(0.3, -0.98, 0.03, -1.08); x.fill();
+      dusty();
+    } else { // lander remains
+      Art.cyl(x, 0, 0, 0.7, 0.35, 0.7, Art.tones('#9aa0aa'), { bands: 1 });
+      x.strokeStyle = anth.base; x.lineWidth = 0.07;
+      x.beginPath(); x.moveTo(-0.6, -0.1); x.lineTo(-1.1, 0.35); x.moveTo(0.6, -0.1); x.lineTo(0.9, 0.2); x.lineTo(1.3, 0.25); x.stroke();
+      x.fillStyle = orange.lo; x.fillRect(-0.6, -0.55, 1.2, 0.07);
+      x.fillStyle = 'rgba(20,16,14,.35)'; x.beginPath(); x.ellipse(0.1, 0.3, 1.5, 0.6, 0, 0, Math.PI * 2); x.fill();
+    }
+  },
+  planetProp(x, kind, v, cls, rnd, dustCol, shadowCol) {
+    const s = 0.8 + cls * 0.4;
+    x.fillStyle = Col.rgba(shadowCol, 0.3); x.beginPath(); x.ellipse(0.15 * s, 0.08, 0.45 * s, 0.16 * s, 0, 0, Math.PI * 2); x.fill();
+    if (kind === 'patina') {
+      const pts = Art.blobPts(rnd, 0, 0, 0.6 * s, 0.35 * s, 9, 0.25);
+      x.fillStyle = 'rgba(90,60,40,.5)'; x.save(); x.scale(1.15, 1.2); Art.smoothPath(x, pts); x.fill(); x.restore();
+      const g = x.createLinearGradient(-0.5, -0.3, 0.5, 0.3); g.addColorStop(0, '#9af0d8'); g.addColorStop(1, '#1f8a76');
+      x.fillStyle = g; Art.smoothPath(x, pts); x.fill();
+      x.strokeStyle = 'rgba(255,255,255,.6)'; x.lineWidth = 0.03; x.beginPath(); x.ellipse(-0.15 * s, -0.08 * s, 0.2 * s, 0.05 * s, -0.2, Math.PI, Math.PI * 1.8); x.stroke();
+    } else if (kind === 'ice') {
+      for (let i = 0; i < 3; i++) { const t = { hi: '#ffffff', base: '#c8e6fa', lo: '#7aa8d0', edge: '#4a78a8', rim: '#ffffff' }; Art.facets(x, Art.blobPts(rnd, (i - 1) * 0.3 * s, -0.12 * s, 0.25 * s, 0.22 * s, 5, 0.35), (i - 1) * 0.3 * s - 0.05, -0.2 * s, t, { lw: 0.025 }); }
+    } else if (kind === 'lavarock') {
+      const t = Art.tones('#2a2220');
+      const pts = Art.blobPts(rnd, 0, -0.2 * s, 0.4 * s, 0.3 * s, 7, 0.3);
+      Art.facets(x, pts, -0.1, -0.3 * s, t, { lw: 0.03 });
+      x.strokeStyle = '#ff7a2a'; x.lineWidth = 0.035; x.beginPath(); x.moveTo(-0.25 * s, -0.15 * s); x.lineTo(0, -0.3 * s); x.lineTo(0.2 * s, -0.18 * s); x.stroke();
+      x.fillStyle = 'rgba(255,140,60,.3)'; x.beginPath(); x.arc(0, -0.25 * s, 0.25 * s, 0, Math.PI * 2); x.fill();
+    } else if (kind === 'flora') {
+      const cols = ['#7affb0', '#c07aff', '#ff8ad8', '#7ad0ff'];
+      for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283; x.fillStyle = i % 2 ? '#3a8a5a' : '#5ab07a'; x.beginPath(); x.ellipse(Math.cos(a) * 0.18 * s, Math.sin(a) * 0.1 * s, 0.2 * s, 0.07 * s, a, 0, Math.PI * 2); x.fill(); }
+      x.fillStyle = cols[v % 4]; x.beginPath(); x.arc(0, 0, 0.07 * s, 0, Math.PI * 2); x.fill();
+    } else if (kind === 'pylon') {
+      Art.box(x, -0.12, -0.12, 0.24, 0.2, 0.9, Art.tones('#3a3460'), { r: 0.03, lw: 0.02 });
+      x.fillStyle = v % 2 ? '#3ff0ff' : '#ff4fd8'; x.beginPath(); x.arc(0, -0.62, 0.06, 0, Math.PI * 2); x.fill();
+    } else if (kind === 'crystal') {
+      for (let i = 0; i < 4; i++) { const px = (i - 1.5) * 0.16 * s, len = (0.35 + rnd() * 0.45) * s, w = 0.07 * s, a = (i - 1.5) * 0.22; x.save(); x.translate(px, 0); x.rotate(a); Art.facets(x, [[-w, 0], [-w * 0.8, -len], [0, -len - w * 1.3], [w * 0.8, -len], [w, 0]], -w * 0.2, -len * 0.5, { hi: '#ffffff', base: '#e0d4ff', lo: '#9a8ad0', edge: '#5a4a8a', rim: '#ffffff' }, { lw: 0.02 }); x.restore(); }
+    } else if (kind === 'voidshard') {
+      for (let i = 0; i < 3; i++) { const t = { hi: '#6a6aa8', base: '#1c1c3a', lo: '#0a0a18', edge: '#8a7dff', rim: '#c8c0ff' }; Art.facets(x, [[(i - 1) * 0.2 - 0.06, 0], [(i - 1) * 0.2, -0.45 * s + i * 0.08], [(i - 1) * 0.2 + 0.08, 0]], (i - 1) * 0.2, -0.2, t, { lw: 0.02 }); }
+      Art.glint(x, 0, -0.35 * s, 0.1, '#ffffff');
+    }
+  }
+};
+
+// ===== src/app/03w_ground.js =====
+// =====================================================================
+// Ground: the ground tells the story of play. Boot prints (left/right,
+// oriented, with depth; fade 20-40 s, faster on dust), rover and alien
+// tracks, a wear map that turns busy routes into trampled paths, a
+// foundation zone under every building, a contact ring that anchors
+// deposits, drifting cloud shadows and sand blowing over dune crests.
+// =====================================================================
+const Ground = {
+  prints: [], wear: new Map(), lastStep: null,
+  // ---------------- prints ----------------
+  printSprite(kind, ppt) {
+    return Art.cached('P|PR|' + kind + '|' + ppt, () => {
+      const W = kind === 'rover' ? 1.0 : 0.42, H = kind === 'rover' ? 0.8 : 0.26;
+      const c = Art.canvas(W * ppt, H * ppt), x = c.getContext('2d');
+      x.scale(ppt, ppt); x.translate(W / 2, H / 2);
+      const dark = Col.rgba(Col.shade(Render.palette.ground[1], -0.55), 0.55), lite = 'rgba(255,240,220,.35)';
+      if (kind === 'rover') {
+        for (const sy of [-0.3, 0.3]) {
+          x.fillStyle = dark; x.fillRect(-0.45, sy - 0.07, 0.9, 0.14);
+          x.fillStyle = lite; x.fillRect(-0.45, sy + 0.06, 0.9, 0.02);
+          x.fillStyle = 'rgba(0,0,0,.2)'; for (let i = 0; i < 9; i++) x.fillRect(-0.44 + i * 0.1, sy - 0.07, 0.03, 0.14);
+        }
+      } else if (kind === 'paw') {
+        x.fillStyle = dark; x.beginPath(); x.ellipse(0, 0.02, 0.06, 0.05, 0, 0, Math.PI * 2); x.fill();
+        for (let i = 0; i < 3; i++) { x.beginPath(); x.arc(0.07, -0.05 + i * 0.05, 0.022, 0, Math.PI * 2); x.fill(); }
+      } else {
+        // boot sole pointing along +x, tread lines, lit lower rim for depth (light from top left)
+        x.fillStyle = dark; Art.rrect(x, -0.16, -0.065, 0.32, 0.13, 0.06); x.fill();
+        x.strokeStyle = lite; x.lineWidth = 0.018; x.beginPath(); x.moveTo(-0.14, 0.07); x.lineTo(0.14, 0.07); x.stroke();
+        x.strokeStyle = 'rgba(0,0,0,.25)'; x.lineWidth = 0.015; x.beginPath(); for (let i = 0; i < 5; i++) { x.moveTo(-0.12 + i * 0.055, -0.05); x.lineTo(-0.12 + i * 0.055, 0.05); } x.stroke();
+      }
+      return { canvas: c, w: W, h: H };
+    });
+  },
+  addPrint(kind, x, y, a, side) {
+    if (Ground.prints.length > 260) Ground.prints.shift();
+    const mat = TerrainSys.matAt(x, y);
+    const life = (mat === 0 ? 20 : mat === 1 ? 24 : 34) + Math.random() * 6; // dust and sand blow prints away faster
+    Ground.prints.push({ kind, x, y, a, side, t: 0, life });
+  },
+  update(g, dt) {
+    const P = Ground.prints;
+    for (let i = P.length - 1; i >= 0; i--) { P[i].t += dt; if (P[i].t > P[i].life) P.splice(i, 1); }
+    const p = g.run.player;
+    if (!p.moving) { Ground.lastStep = null; return; }
+    if (!Ground.lastStep) { Ground.lastStep = { x: p.x, y: p.y, side: 1 }; return; }
+    const L = Ground.lastStep;
+    const rover = g.run.research.done.has('rover');
+    const dist = Math.hypot(p.x - L.x, p.y - L.y);
+    if (dist < (rover ? 0.5 : 0.36)) return;
+    const a = Math.atan2(p.y - L.y, p.x - L.x);
+    L.side = -L.side;
+    const ox = Math.cos(a + Math.PI / 2) * 0.09 * L.side, oy = Math.sin(a + Math.PI / 2) * 0.09 * L.side;
+    Ground.addPrint(rover ? 'rover' : 'boot', p.x + (rover ? 0 : ox), p.y - 0.02 + (rover ? 0 : oy), a, L.side);
+    Ground.tread(p.x, p.y, rover ? 0.06 : 0.035);
+    L.x = p.x; L.y = p.y;
+    if (!App.settings.reducedFx && !rover && Math.random() < 0.5) Render.spawn('dust', p.x + ox, p.y + oy, -Math.cos(a) * 0.3, -0.15, 0.7, Render.palette.particle, 0.09);
+  },
+  draw(ctx) {
+    const ppt = Art.bucket(Render.ppt(), 96);
+    for (const f of Ground.prints) {
+      const s = Ground.printSprite(f.kind, ppt);
+      const k = f.t / f.life;
+      ctx.globalAlpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+      ctx.save(); ctx.translate(f.x - Render.ox, f.y - Render.oy); ctx.rotate(f.a);
+      ctx.drawImage(s.canvas, -s.w / 2, -s.h / 2, s.w, s.h);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  },
+  // ---------------- wear map (trampled paths) ----------------
+  tread(x, y, amount) {
+    const S = CONFIG.chunkSize, cx = Math.floor(x / S), cy = Math.floor(y / S);
+    const key = cx + ',' + cy;
+    let w = Ground.wear.get(key);
+    if (!w) { w = { a: new Float32Array(S * S), c: null, dirty: true, cx, cy }; Ground.wear.set(key, w); }
+    const tx = Math.floor(x) - cx * S, ty = Math.floor(y) - cy * S;
+    w.a[ty * S + tx] = Math.min(1, w.a[ty * S + tx] + amount);
+    w.dirty = true;
+  },
+  drawWear(ctx, vr) {
+    const S = CONFIG.chunkSize, col = Col.rgb(Col.shade(Render.palette.ground[0], -0.25));
+    for (const w of Ground.wear.values()) {
+      if ((w.cx + 1) * S < vr.x0 || w.cx * S > vr.x1 || (w.cy + 1) * S < vr.y0 || w.cy * S > vr.y1) continue;
+      if (w.dirty || !w.c) {
+        w.dirty = false;
+        if (!w.c) w.c = Art.canvas(S, S);
+        const x = w.c.getContext('2d'), img = x.createImageData(S, S);
+        for (let i = 0; i < S * S; i++) { const v = w.a[i]; img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = Math.min(1, v) * 120; }
+        x.putImageData(img, 0, 0);
+      }
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(w.c, w.cx * S - Render.ox, w.cy * S - Render.oy, S, S);
+    }
+  },
+  decayWear(dt) {
+    for (const w of Ground.wear.values()) { let any = false; for (let i = 0; i < w.a.length; i++) if (w.a[i] > 0) { w.a[i] = Math.max(0, w.a[i] - dt * 0.0008); any = true; } if (any) w.dirty = true; }
+  },
+  // ---------------- foundation zones ----------------
+  NO_FOUND: { belt: 1, path: 1, fence: 1, lamp: 1, flag: 1, beacon: 1, bridge: 1, splitter: 1, merger: 1, crossing: 1, fsplitter: 1, osplitter: 1 },
+  foundation(type, w, h, ppt) {
+    return Art.cached('P|FD|' + type + '|' + w + 'x' + h + '|' + ppt, () => {
+      const M = 0.55, W = w + M * 2, H = h + M * 2;
+      const c = Art.canvas(W * ppt, H * ppt), x = c.getContext('2d');
+      x.scale(ppt, ppt); x.translate(M, M);
+      const rnd = RNG.mulberry32(RNG.hash(RNG.hashString(type), w, h));
+      const dust = Col.shade(Render.palette.ground[2], 0.12), dark = Col.shade(Render.palette.ground[0], -0.2);
+      // displaced dust rim (light) around a compacted, darker pad
+      const g = x.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75);
+      g.addColorStop(0, Col.rgba(dark, 0.28)); g.addColorStop(0.75, Col.rgba(dark, 0.12)); g.addColorStop(1, Col.rgba(dark, 0));
+      x.fillStyle = g; Art.rrect(x, -M * 0.6, -M * 0.6, w + M * 1.2, h + M * 1.2, 0.5); x.fill();
+      x.strokeStyle = Col.rgba(dust, 0.45); x.lineWidth = 0.22; Art.rrect(x, -0.32, -0.32, w + 0.64, h + 0.64, 0.45); x.stroke();
+      // skid marks and small debris / bolts
+      x.strokeStyle = Col.rgba(dark, 0.35); x.lineWidth = 0.05;
+      for (let i = 0; i < 3 + w; i++) { const sx = rnd() * w, sy = h + 0.1 + rnd() * 0.3; x.beginPath(); x.moveTo(sx, sy); x.lineTo(sx + (rnd() - 0.5) * 0.8, sy + 0.25); x.stroke(); }
+      for (let i = 0; i < 4 + w * 2; i++) {
+        const a = rnd() * 6.283, px = w / 2 + Math.cos(a) * (w / 2 + 0.15 + rnd() * 0.3), py = h / 2 + Math.sin(a) * (h / 2 + 0.15 + rnd() * 0.3);
+        x.fillStyle = rnd() < 0.5 ? 'rgba(160,165,175,.8)' : Col.rgba(dark, 0.6); x.fillRect(px, py, 0.05 + rnd() * 0.05, 0.04);
+      }
+      if (REFINERY_LEVEL[type] || type === 'cooler') { const sg = x.createRadialGradient(w * 0.8, h * 0.2, 0, w * 0.8, h * 0.2, 1.6); sg.addColorStop(0, 'rgba(20,16,18,.35)'); sg.addColorStop(1, 'rgba(20,16,18,0)'); x.fillStyle = sg; x.fillRect(-M, -M, W, H); }
+      return { canvas: c, w: W, h: H, m: M };
+    });
+  },
+  drawFoundations(ctx, list) {
+    if (App.cam.zoom < 11) return;
+    const ppt = Art.bucket(Render.ppt(), 48);
+    for (const b of list) {
+      if (Ground.NO_FOUND[b.type]) continue;
+      const s = Ground.foundation(b.type, b.w, b.h, ppt);
+      ctx.drawImage(s.canvas, b.x - Render.ox - s.m, b.y - Render.oy - s.m, s.w, s.h);
+    }
+  },
+  // ---------------- deposit anchoring (the deposit sprite itself stays unchanged) ----------------
+  depositRing(d, ppt) {
+    return Art.cached('P|DR|' + d.id + '|' + ppt, () => {
+      const bb = DepositArt.bbox(d), M = 1.2;
+      const W = bb.x1 - bb.x0 + M * 2, H = bb.y1 - bb.y0 + M * 2;
+      const c = Art.canvas(W * ppt, H * ppt), x = c.getContext('2d');
+      x.scale(ppt, ppt); x.translate(M - bb.x0, M - bb.y0);
+      const rnd = RNG.mulberry32(RNG.hash(d.id & 0x7fffffff, 91));
+      const dark = Col.shade(Render.palette.ground[0], -0.35), dust = Col.shade(Render.palette.ground[2], 0.1);
+      for (const t of d.tiles) {
+        const g = x.createRadialGradient(t[0] + 0.55, t[1] + 0.6, 0.2, t[0] + 0.55, t[1] + 0.6, 1.05);
+        g.addColorStop(0, Col.rgba(dark, 0.32)); g.addColorStop(1, Col.rgba(dark, 0));
+        x.fillStyle = g; x.fillRect(t[0] - 0.6, t[1] - 0.5, 2.3, 2.3);
+      }
+      // thrown-up dust and gravel around the rim
+      for (let i = 0; i < d.tiles.length * 7; i++) {
+        const t = d.tiles[i % d.tiles.length], a = rnd() * 6.283, r = 0.75 + rnd() * 0.45;
+        const px = t[0] + 0.5 + Math.cos(a) * r, py = t[1] + 0.5 + Math.sin(a) * r * 0.85;
+        x.fillStyle = rnd() < 0.6 ? Col.rgba(dust, 0.55) : Col.rgba(dark, 0.5);
+        x.beginPath(); x.ellipse(px, py, 0.04 + rnd() * 0.05, 0.03 + rnd() * 0.03, rnd() * 3, 0, Math.PI * 2); x.fill();
+      }
+      return { canvas: c, ox: bb.x0 - M, oy: bb.y0 - M, w: W, h: H };
+    });
+  },
+  // ---------------- atmosphere: drifting cloud shadows (max ~8 % modulation) ----------------
+  cloudTex: null,
+  clouds(ctx, tm) {
+    if (App.quality === 'low' || App.settings.reducedFx) return;
+    if (!Ground.cloudTex) {
+      const N = 128, c = Art.canvas(N, N), x = c.getContext('2d'), img = x.createImageData(N, N);
+      TerrainCore.init();
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        // tileable: sample noise on a torus
+        const a = i / N * 6.283, b = j / N * 6.283;
+        const v = TerrainCore.fbm(Math.cos(a) * 1.3 + 9, Math.sin(a) * 1.3 + Math.cos(b) * 1.3, 4242 + Math.round(Math.sin(b) * 0), 3) + TerrainCore.gn(Math.cos(b) * 1.7, Math.sin(b) * 1.7 + Math.sin(a), 777) * 0.6;
+        const k = Math.max(0, Math.min(1, (v + 0.1) * 1.6));
+        img.data[(j * N + i) * 4 + 3] = k * 255;
+      }
+      x.putImageData(img, 0, 0);
+      Ground.cloudTex = c;
+    }
+    const T = 90; // tiles per texture repeat
+    const w = Render.look.wind || 0;
+    const sx = ((tm * 0.9 * Math.cos(w)) % T + T) % T, sy = ((tm * 0.9 * Math.sin(w)) % T + T) % T;
+    const vr = Render.visibleRect(2);
+    const x0 = Math.floor((vr.x0 - sx) / T) * T + sx, y0 = Math.floor((vr.y0 - sy) / T) * T + sy;
+    ctx.save(); ctx.globalAlpha = 0.08; ctx.globalCompositeOperation = 'multiply';
+    ctx.imageSmoothingEnabled = true;
+    const tint = Ground.cloudTint || (Ground.cloudTint = (() => { const c = Art.canvas(128, 128), x = c.getContext('2d'); x.drawImage(Ground.cloudTex, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = '#2a1830'; x.fillRect(0, 0, 128, 128); return c; })());
+    for (let y = y0; y < vr.y1; y += T) for (let x = x0; x < vr.x1; x += T) ctx.drawImage(tint, x - Render.ox, y - Render.oy, T, T);
+    ctx.restore();
+  },
+  // sand blowing over dune crests near the player
+  sandDrift(g, dt) {
+    if (App.settings.reducedFx || App.quality === 'low' || !App.settings.weather) return;
+    const vr = Render.visibleRect(0), w = Render.look.wind || 0;
+    const n = Math.random() < dt * 10 ? 1 : 0;
+    for (let i = 0; i < n * 3; i++) {
+      const x = vr.x0 + Math.random() * (vr.x1 - vr.x0), y = vr.y0 + Math.random() * (vr.y1 - vr.y0);
+      if (TerrainSys.matAt(x, y) !== 1) continue;
+      Render.spawn('mote', x, y, Math.cos(w) * 2.4, Math.sin(w) * 1.0, 1.6, Col.shade(Render.palette.particle, 0.1), 0.05);
+    }
+  }
+};
+
 // ===== src/app/04_draw.js =====
 // =====================================================================
 // Draw: facade used by the frame renderer and the UI. Static bodies come
@@ -7413,7 +8640,8 @@ const Draw = {
   },
 
   // ---------------- buildings ----------------
-  building(ctx, g, b, x, y) {
+  building(ctx, g, b, x, y, partPass) {
+    if (partPass) { const d0 = Draw.dt; Draw.dt = 0; Draw._part = true; Draw.building(ctx, g, b, x, y); Draw._part = false; Draw.dt = d0; return; }
     if (b.type === 'belt') return Draw.belt(ctx, g, b, x, y);
     if (b.type === 'bridge') return;
     const now = App.now, fx = !App.settings.reducedFx;
@@ -7647,9 +8875,10 @@ const Draw = {
       }
     },
     bazaar(ctx, g, b, x, y, tm, vt) {
-      const W = b.w, H = b.h;
-      const cy = y + H - 0.72 - BA_E - 0.55 * Art.V + 0.18;
-      const pts = []; for (let i = 0; i < 4; i++) pts.push([x + 0.45 + i * ((W - 0.9) / 3), cy]);
+      const W = b.w, H = b.h, side = b.rot & 3;
+      const pts = [];
+      if (side === 0 || side === 2) { const cy = y + (side === 0 ? H - 0.72 : 0.14) - BA_E - 0.55 * Art.V + 0.18; for (let i = 0; i < 4; i++) pts.push([x + 0.45 + i * ((W - 0.9) / 3), cy]); }
+      else { const cx = x + (side === 1 ? 0.35 : W - 0.35); for (let i = 0; i < 4; i++) pts.push([cx, y + 0.45 + i * ((H - 0.9) / 3) - 0.3]); }
       Draw.shelfItems(ctx, b, pts, 0.2);
       const n = Math.max(5, Math.round(W * 2.5));
       const ayF = H * 0.52 - 0.6;
@@ -7795,28 +9024,46 @@ const Draw = {
 
   // ---------------- customers ----------------
   slotPos(b, slot, tier) {
-    if (tier === 0) return [b.x + 0.6 + (slot % 3) * ((b.w - 1.2) / 2), b.y + b.h + 0.55];
+    if (tier === 0) return Collide.stripPoint(b, slot);
     if (tier === 1) return [b.x + b.w / 2, b.y + b.h + 0.9];
     if (b.type === 'port') { const p = BuildingArt.GEO.pads('port', b.w)[slot % 2]; return [b.x + p[0], b.y + p[1]]; }
     return [b.x + b.w / 2, b.y + b.h / 2 + 0.2];
   },
-  customers(ctx, g, b) {
-    const tm = Draw.tm;
+  // positions customers (A* around hitboxes for walkers) and queues them for the depth sort
+  prepareCustomers(g, b, items, ships) {
+    const tmp = Draw._pt || (Draw._pt = [0, 0, 0]);
     for (const c of b.customers) {
       const [px, py] = Draw.slotPos(b, c.slot, c.tier);
-      let x = px, y = py, k = 1;
+      let x = px, y = py, k = 1, alpha = 1, dirx = 1;
       if (c.state === 'in') k = U.clamp(c.t / c.arrive, 0, 1);
       else if (c.state === 'out') k = 1 - U.clamp(c.t / 3, 0, 1);
       const e = Art.ease.inOutQuad(k);
-      if (c.tier <= 1) { x = c.sx + (px - c.sx) * e; y = c.sy + (py - c.sy) * e; }
-      c._wx = x; c._wy = y;
-      const rx = x - Render.ox, ry = y - Render.oy;
-      if (c.tier === 0) Draw.alien(ctx, rx, ry, c, tm, (px - c.sx) * (c.state === 'out' ? -1 : 1) >= 0 ? 1 : -1);
-      else if (c.tier === 1) CharArt.caravan(ctx, rx, ry, c, tm, Math.atan2(py - c.sy, px - c.sx) + (c.state === 'out' ? Math.PI : 0), c.state !== 'wait');
-      else CharArt.ship(ctx, rx, ry, c, tm, b);
-      if (c.state === 'wait' && App.cam.zoom >= 13) Draw.bubbles.push(rx, ry - (c.tier === 0 ? 1.6 : c.tier === 1 ? 1.65 : [0, 0, 2.2, 3.4, 5.6][c.tier] * 0.55), c);
+      if (c.tier <= 1) {
+        if (c._path === undefined) c._path = Paths.find(g, c.sx, c.sy, px, py) || null;
+        if (c._path) { Paths.at(c._path, e, tmp); x = tmp[0]; y = tmp[1]; dirx = (c.state === 'out' ? -tmp[2] : tmp[2]) >= 0 ? 1 : -1; c._ang = Math.atan2(0, dirx) ; }
+        else { x = px; y = py; alpha = Math.min(1, k * 3); dirx = 1; } // no way through: appear at the stall
+      }
+      c._wx = x; c._wy = y; c._alpha = alpha; c._dirx = dirx;
+      if (c.tier === 0 && c.state !== 'wait' && c._path) {
+        if (c._lpx === undefined) { c._lpx = x; c._lpy = y; c._ls = 1; }
+        else if (Math.hypot(x - c._lpx, y - c._lpy) > 0.42) { const a = Math.atan2(y - c._lpy, x - c._lpx); c._ls = -c._ls; Ground.addPrint('paw', x + Math.cos(a + 1.57) * 0.07 * c._ls, y + Math.sin(a + 1.57) * 0.07 * c._ls, a, c._ls); Ground.tread(x, y, 0.01); c._lpx = x; c._lpy = y; }
+      }
+      if (c.tier >= 2) ships.push(b, c);
+      else items.push({ kind: 'c', key: y, b, c });
+      if (c.state === 'wait' && App.cam.zoom >= 13) Draw.bubbles.push(x - Render.ox, y - Render.oy - (c.tier === 0 ? 1.6 : c.tier === 1 ? 1.65 : [0, 0, 2.2, 3.4, 5.6][c.tier] * 0.55), c);
       else c._bubAt = 0;
     }
+  },
+  drawCustomer(ctx, g, b, c) {
+    const tm = Draw.tm, rx = c._wx - Render.ox, ry = c._wy - Render.oy;
+    if (c._alpha < 1) ctx.globalAlpha = c._alpha;
+    if (c.tier === 0) Draw.alien(ctx, rx, ry, c, tm, c._dirx);
+    else {
+      let ang = c._dirx >= 0 ? 0 : Math.PI;
+      if (c._path && c.state !== 'wait') { const t2 = Draw._pt2 || (Draw._pt2 = [0, 0, 0]); const k = c.state === 'in' ? U.clamp(c.t / c.arrive, 0, 1) : 1 - U.clamp(c.t / 3, 0, 1); Paths.at(c._path, Math.min(1, Art.ease.inOutQuad(k) + 0.02), t2); ang = Math.atan2(t2[1] - c._wy, t2[0] - c._wx) + (c.state === 'out' ? Math.PI : 0); }
+      CharArt.caravan(ctx, rx, ry, c, tm, ang, c.state !== 'wait');
+    }
+    ctx.globalAlpha = 1;
   },
   skinCache: null,
   planetSkins() {
@@ -7925,7 +9172,7 @@ const BuildingArt = {
     if (alpha < 1) { const a = ctx.globalAlpha; ctx.globalAlpha = a * alpha; ctx.drawImage(s.canvas, x + s.ox, y + s.oy, s.w, s.h); ctx.globalAlpha = a; }
     else ctx.drawImage(s.canvas, x + s.ox, y + s.oy, s.w, s.h);
   },
-  ROT_FREE: { extractor: 1, cooler: 1, servo: 1, charger: 1, lab: 1, bazaar: 1, caravan: 1, shuttlepad: 1, port: 1, dock: 1, terminal: 1, lamp: 1, flag: 1, plant: 1, beacon: 1, path: 1, fence: 1 },
+  ROT_FREE: { extractor: 1, cooler: 1, servo: 1, charger: 1, lab: 1, caravan: 1, shuttlepad: 1, port: 1, dock: 1, terminal: 1, lamp: 1, flag: 1, plant: 1, beacon: 1, path: 1, fence: 1 },
   rotKey(b) { return BuildingArt.ROT_FREE[b.type] ? 0 : b.rot; },
 
   // ---------------- shared painting helpers ----------------
@@ -8222,12 +9469,16 @@ const BuildingArt = {
       const wood = Art.tones(vt >= 2 ? '#9a6a3a' : '#7a5232');
       Art.box(x, 0.06, 0.06, W - 0.12, H - 0.12, 0.12, wood, { r: 0.06 });
       x.strokeStyle = 'rgba(40,20,10,.35)'; x.lineWidth = 0.02; x.beginPath(); for (let yy = 0.2; yy < H - 0.1; yy += 0.22) { x.moveTo(0.1, yy - BA_E); x.lineTo(W - 0.1, yy - BA_E); } x.stroke();
-      // crates at the back
+      // crates opposite the customer side, counter on the customer side (follows rotation)
+      const side = rot & 3; // 0 south, 1 west, 2 north, 3 east
       const crate = Art.tones('#b0824a');
-      for (let i = 0; i < Math.floor(W * 1.3); i++) { const cx = 0.25 + i * 0.62 + (rnd() - 0.5) * 0.1; if (cx > W - 0.6) break; Art.box(x, cx, 0.22 - BA_E, 0.48, 0.4, 0.45 + rnd() * 0.15, crate, { r: 0.03 }); x.strokeStyle = 'rgba(60,30,10,.5)'; x.lineWidth = 0.02; x.beginPath(); x.moveTo(cx + 0.04, 0.22 - BA_E - 0.2); x.lineTo(cx + 0.44, 0.22 - BA_E + 0.36 - 0.3); x.stroke(); }
-      // counter at the front
       const ct = Art.tones(vt === 3 ? '#e8d0a0' : '#8a5a32');
-      Art.box(x, 0.18, H - 0.72 - BA_E, W - 0.36, 0.42, 0.55, ct, { r: 0.04 });
+      const crateRow = (y0) => { for (let i = 0; i < Math.floor(W * 1.3); i++) { const cx = 0.25 + i * 0.62 + (rnd() - 0.5) * 0.1; if (cx > W - 0.6) break; Art.box(x, cx, y0 - BA_E, 0.48, 0.4, 0.45 + rnd() * 0.15, crate, { r: 0.03 }); x.strokeStyle = 'rgba(60,30,10,.5)'; x.lineWidth = 0.02; x.beginPath(); x.moveTo(cx + 0.04, y0 - BA_E - 0.2); x.lineTo(cx + 0.44, y0 - BA_E + 0.36 - 0.3); x.stroke(); } };
+      const crateCol = (x0) => { for (let i = 0; i < Math.floor(H * 1.3); i++) { const cy = 0.3 + i * 0.62; if (cy > H - 0.6) break; Art.box(x, x0, cy - BA_E, 0.42, 0.45, 0.45 + rnd() * 0.15, crate, { r: 0.03 }); } };
+      if (side === 0) { crateRow(0.22); Art.box(x, 0.18, H - 0.72 - BA_E, W - 0.36, 0.42, 0.55, ct, { r: 0.04 }); }
+      else if (side === 2) { Art.box(x, 0.18, 0.14 - BA_E, W - 0.36, 0.42, 0.55, ct, { r: 0.04 }); crateRow(H - 0.72); }
+      else if (side === 1) { crateCol(W - 0.62); Art.box(x, 0.14, 0.3 - BA_E, 0.42, H - 0.6, 0.55, ct, { r: 0.04 }); }
+      else { crateCol(0.2); Art.box(x, W - 0.56, 0.3 - BA_E, 0.42, H - 0.6, 0.55, ct, { r: 0.04 }); }
       // awning (tilted cloth roof with stripes and scalloped edge)
       const c1 = vt === 0 ? '#e0703a' : vt === 1 ? '#d84fa0' : vt === 2 ? '#3a8ad8' : '#8a3ad8';
       const c2 = vt === 3 ? '#f6d98f' : '#fff3d6';
@@ -9676,6 +10927,134 @@ const CharArt = {
   }
 };
 
+// ===== src/app/04d_sort.js =====
+// =====================================================================
+// Depth sorting (y-sort by foot line), x-ray for the player behind tall
+// buildings, and customer walking paths around hitboxes (A* on tiles,
+// alien paths preferred). Purely visual: customer timing and income are
+// untouched; if no path exists the customer simply appears at the stall.
+// =====================================================================
+const Sorter = {
+  // custom buildings: flat base drawn in the ground pass, tall parts sorted separately
+  TALL: {
+    caravan: (W, H) => [[0, 0, W, 0.34, 0.34], [0, 0.3, 0.32, H - 0.2, H - 0.2], [W - 0.32, 0.3, W, H - 0.2, H - 0.2], [0.4, 0.4, 1.6, 2.6, 2.6], [W - 1.6, 0.4, W - 0.4, 2.6, 2.6], [W / 2 - 0.45, 0, W / 2 + 0.45, 1.2, 1.2]],
+    shuttlepad: (W, H) => [[W - 1.1, 0, W - 0.3, 0.7, 0.7], [0.4, 0, 1.1, 0.7, 0.7]],
+    port: (W, H) => [[W / 2 - 0.7, 0, W / 2 + 0.7, 1.08, 1.08], [0.4, 0, 2.9, 0.92, 0.92], [W - 2.9, 0, W - 0.4, 0.92, 0.92], [0.3, H - 3.5, 0.8, H - 0.6, H - 0.6], [W - 0.8, H - 3.5, W - 0.3, H - 0.6, H - 0.6]],
+    dock: (W, H) => [[0.25, 0, 1.95, 1.35, 1.35], [W - 1.5, 0, W - 0.5, 1.48, 1.48], [0.15, 1.8, 1.55, 7.82, 7.82], [W - 1.6, 1.8, W - 0.2, 7.82, 7.82], [0.6, 4.5, W - 0.6, 7.9, 7.9]]
+  },
+  isSplit(b) { return !!Sorter.TALL[b.type]; },
+  footY(b) {
+    if (b.type === 'bazaar') return b.y + b.h - 0.45;
+    return b.y + b.h;
+  },
+  // draws a clipped column of the building sprite (one tall part) for sorting
+  drawPart(ctx, g, b, part) {
+    const x = b.x - Render.ox, y = b.y - Render.oy;
+    const top = (BuildingArt.TOP[b.type] || 1) + 0.5;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x + part[0] - 0.05, y - top, part[2] - part[0] + 0.1, part[3] + top + 0.05); ctx.clip();
+    Draw.building(ctx, g, b, x, y, true);
+    ctx.restore();
+  },
+  // x-ray state
+  xr: 0,
+  xrCanvas: null,
+  begin(ctx) {
+    const c = Render.canvas;
+    let o = Sorter.xrCanvas;
+    if (!o || o.width !== c.width || o.height !== c.height) { o = Sorter.xrCanvas = document.createElement('canvas'); o.width = c.width; o.height = c.height; }
+    const x = o.getContext('2d');
+    x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, o.width, o.height);
+    x.setTransform(ctx.getTransform());
+    return x;
+  },
+  // soft hole (40-55 % opacity) around the player in the occluder layer, then composite
+  end(ctx, x, px, py) {
+    const S = Render.S;
+    const m = ctx.getTransform();
+    const sx = px * m.a + m.e, sy = (py - 0.55) * m.d + m.f, R = 1.5 * S;
+    x.save(); x.setTransform(1, 0, 0, 1, 0, 0);
+    x.globalCompositeOperation = 'destination-out';
+    const k = Sorter.xr;
+    const gr = x.createRadialGradient(sx, sy, R * 0.25, sx, sy, R);
+    gr.addColorStop(0, 'rgba(0,0,0,' + (0.55 * k).toFixed(3) + ')'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = gr; x.fillRect(sx - R, sy - R, R * 2, R * 2);
+    x.restore();
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(Sorter.xrCanvas, 0, 0); ctx.restore();
+  },
+  // does a later-drawn sprite cover the player's body?
+  covers(item, px, py) {
+    if (item.kind !== 'b' && item.kind !== 'part') return false;
+    const b = item.b;
+    if (item.kind === 'part') { const p = item.part; return px > b.x + p[0] - 0.2 && px < b.x + p[2] + 0.2 && py < b.y + p[4] && py > b.y - 3; }
+    const top = (BuildingArt.TOP[b.type] || 1) * 0.9;
+    return px > b.x - 0.1 && px < b.x + b.w + 0.1 && py < Sorter.footY(b) && py > b.y - top;
+  }
+};
+
+const Paths = {
+  blocked(g, tx, ty) {
+    const id = g.occ.get(U.tileKey(tx, ty));
+    if (id === undefined) return false;
+    const b = g.buildings.get(id);
+    if (!b || Collide.mode(b.type) === 'none') return false;
+    const cx = tx + 0.5, cy = ty + 0.5;
+    for (const r of Collide.boxes(b)) if (cx > r[0] && cx < r[2] && cy > r[1] && cy < r[3]) return true;
+    return false;
+  },
+  // A* on tiles; alien paths cost less. Returns a list of points or null.
+  find(g, sx, sy, ex, ey) {
+    const x0 = Math.floor(Math.min(sx, ex)) - 6, y0 = Math.floor(Math.min(sy, ey)) - 6;
+    const W = Math.floor(Math.max(sx, ex)) + 7 - x0, H = Math.floor(Math.max(sy, ey)) + 7 - y0;
+    if (W * H > 9000) return null;
+    const idx = (x, y) => (y - y0) * W + (x - x0);
+    const gS = new Float32Array(W * H).fill(1e9), from = new Int32Array(W * H).fill(-1), closed = new Uint8Array(W * H);
+    const stx = Math.floor(sx), sty = Math.floor(sy), etx = Math.floor(ex), ety = Math.floor(ey);
+    const open = [[stx, sty, 0]];
+    gS[idx(stx, sty)] = 0;
+    let found = false, iter = 0;
+    while (open.length && iter++ < 4000) {
+      let bi = 0; for (let i = 1; i < open.length; i++) if (open[i][2] < open[bi][2]) bi = i;
+      const [cx, cy] = open[bi]; open.splice(bi, 1);
+      const ci = idx(cx, cy);
+      if (closed[ci]) continue;
+      closed[ci] = 1;
+      if (cx === etx && cy === ety) { found = true; break; }
+      for (let d = 0; d < 4; d++) {
+        const nx = cx + U.DX[d], ny = cy + U.DY[d];
+        if (nx < x0 || ny < y0 || nx >= x0 + W || ny >= y0 + H) continue;
+        const ni = idx(nx, ny);
+        if (closed[ni]) continue;
+        if (!(nx === etx && ny === ety) && Paths.blocked(g, nx, ny)) continue;
+        const o = Grid.at(g, nx, ny);
+        const cost = o && o.type === 'path' ? 0.45 : 1;
+        const ng = gS[ci] + cost;
+        if (ng < gS[ni]) { gS[ni] = ng; from[ni] = ci; open.push([nx, ny, ng + (Math.abs(nx - etx) + Math.abs(ny - ety)) * 0.45]); }
+      }
+    }
+    if (!found) return null;
+    const pts = [];
+    for (let i = idx(etx, ety); i >= 0; i = from[i]) pts.push([x0 + (i % W) + 0.5, y0 + Math.floor(i / W) + 0.5]);
+    pts.reverse();
+    pts[0] = [sx, sy]; pts.push([ex, ey]);
+    // smooth corners a little
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length - 1; i++) out.push([(pts[i - 1][0] + pts[i][0] * 2 + pts[i + 1][0]) / 4, (pts[i - 1][1] + pts[i][1] * 2 + pts[i + 1][1]) / 4]);
+    out.push(pts[pts.length - 1]);
+    let L = 0; const cum = [0];
+    for (let i = 1; i < out.length; i++) { L += Math.hypot(out[i][0] - out[i - 1][0], out[i][1] - out[i - 1][1]); cum.push(L); }
+    return { pts: out, cum, L };
+  },
+  at(path, k, out) {
+    const d = k * path.L, c = path.cum, p = path.pts;
+    let i = 1; while (i < c.length - 1 && c[i] < d) i++;
+    const t = (d - c[i - 1]) / Math.max(1e-6, c[i] - c[i - 1]);
+    out[0] = p[i - 1][0] + (p[i][0] - p[i - 1][0]) * t; out[1] = p[i - 1][1] + (p[i][1] - p[i - 1][1]) * t;
+    out[2] = p[i][0] - p[i - 1][0];
+    return out;
+  }
+};
+
 // ===== src/app/05_frame.js =====
 // =====================================================================
 // Frame: draws one complete frame of the world
@@ -9709,14 +11088,6 @@ const Frame = {
     const mark = k => { if (!P) return; const n = performance.now(); P[k] = (P[k] || 0) * 0.95 + (n - pt) * 0.05; pt = n; };
     Render.drawTerrain(ctx, g, vr); mark('terrain');
     Render.drawDecor(ctx, g, vr);
-    Render.drawPrints(ctx); mark('decor');
-    const deps = Frame.deps || (Frame.deps = []);
-    deps.length = 0;
-    World.depositsInRect(g.world, vr.x0 - 2, vr.y0 - 2, vr.x1 + 2, vr.y1 + 2, deps);
-    const dppt = Art.bucket(Render.ppt(), 96);
-    for (const d of deps) { const s = DepositArt.sprite(d, dppt); ctx.drawImage(s.canvas, s.ox - Render.ox, s.oy - Render.oy, s.w, s.h); }
-    mark('deposits');
-    if (App.debug.chunkBorders) Frame.chunkBorders(ctx, vr);
     // collect visible buildings
     const S = CONFIG.chunkSize;
     const vis = Frame.vis || (Frame.vis = []);
@@ -9735,6 +11106,19 @@ const Frame = {
       }
     }
     mark('collect');
+    // ground stories: trampled paths, foundation zones, prints
+    Ground.drawWear(ctx, vr);
+    Ground.drawFoundations(ctx, vis);
+    if (typeof Intro !== 'undefined' && Intro.groundDecals) Intro.groundDecals(ctx, g);
+    Render.drawPrints(ctx); mark('decor');
+    const deps = Frame.deps || (Frame.deps = []);
+    deps.length = 0;
+    World.depositsInRect(g.world, vr.x0 - 2, vr.y0 - 2, vr.x1 + 2, vr.y1 + 2, deps);
+    const dppt = Art.bucket(Render.ppt(), 96);
+    for (const d of deps) { const r = Ground.depositRing(d, Math.min(64, dppt)); ctx.drawImage(r.canvas, r.ox - Render.ox, r.oy - Render.oy, r.w, r.h); }
+    for (const d of deps) { const s = DepositArt.sprite(d, dppt); ctx.drawImage(s.canvas, s.ox - Render.ox, s.oy - Render.oy, s.w, s.h); }
+    mark('deposits');
+    if (App.debug.chunkBorders) Frame.chunkBorders(ctx, vr);
     // layer 1: flat things (paths, belts, belt items)
     for (const b of vis) if (b.type === 'path') Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
     const belts = Frame.belts || (Frame.belts = []);
@@ -9744,21 +11128,24 @@ const Frame = {
     BeltArt.drawItems(ctx, g, belts, alpha, Draw.tm);
     BeltArt.plops(g, belts);
     mark('belts+items');
-    // layer 2: batched cast shadows, then buildings back to front
+    // ground pass: flat transport nodes, bridges and the flat bases of large stations (always under figures)
     const solid = Frame.solid || (Frame.solid = []);
     solid.length = 0;
-    for (const b of vis) if (b.type !== 'path' && b.type !== 'belt' && b.type !== 'bridge') solid.push(b);
-    BuildingArt.castShadows(ctx, g, solid);
-    solid.sort((a, b) => (a.y + a.h) - (b.y + b.h) || a.x - b.x);
     const isz = 0.2;
-    for (const b of solid) {
-      Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
-      if (b.buf && b.type !== 'extractor' && b.buf.length) Draw.item(ctx, b.buf[0].res, b.buf[0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
-      if (b.lanes) for (let d = 0; d < 4; d++) if (b.lanes[d] && b.lanes[d].length) Draw.item(ctx, b.lanes[d][0].res, b.lanes[d][0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
+    for (const b of vis) {
+      if (b.type === 'path' || b.type === 'belt' || b.type === 'bridge') continue;
+      if (Grid.isTransport(b.type)) {
+        Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
+        if (b.buf && b.buf.length) Draw.item(ctx, b.buf[0].res, b.buf[0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
+        if (b.lanes) for (let d = 0; d < 4; d++) if (b.lanes[d] && b.lanes[d].length) Draw.item(ctx, b.lanes[d][0].res, b.lanes[d][0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
+        continue;
+      }
+      solid.push(b);
     }
+    for (const b of solid) if (Sorter.isSplit(b)) Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
     for (const b of vis) if (b.type === 'bridge') Draw.bridge(ctx, g, b, alpha);
-    mark('buildings');
-    // tips: spinning coins with a glow
+    BuildingArt.castShadows(ctx, g, solid);
+    // tips: spinning coins with a glow (on the ground)
     const tm = Draw.tm;
     for (const tp of g.run.tips) {
       const bob = Math.abs(Math.sin(tm * 3 + tp.x)) * 0.18;
@@ -9767,18 +11154,50 @@ const Frame = {
       Draw.glowAt(ctx, x, y - bob, 0.55, '#ffd24a', 0.55);
       ctx.drawImage(FxLib.get('coin', Math.floor(tm * 10 + tp.x) & 7), x - 0.22, y - bob - 0.22, 0.44, 0.44);
     }
-    // customers and the astronaut
-    for (const b of solid) if (b.customers && b.customers.length) Draw.customers(ctx, g, b);
+    // sorted layer: buildings, tall parts of stations, customers, astronaut, lander (by foot line)
+    const items = Frame.items || (Frame.items = []);
+    items.length = 0;
+    const ships = Frame.ships || (Frame.ships = []);
+    ships.length = 0;
+    for (const b of solid) {
+      if (Sorter.isSplit(b)) { for (const part of Sorter.TALL[b.type](b.w, b.h)) items.push({ kind: 'part', key: b.y + part[4], b, part }); }
+      else items.push({ kind: 'b', key: Sorter.footY(b), b });
+      if (b.customers && b.customers.length) Draw.prepareCustomers(g, b, items, ships);
+    }
     const p = g.run.player;
     const ax = (p.px !== undefined ? p.px + (p.x - p.px) * alpha : p.x), ay = (p.py !== undefined ? p.py + (p.y - p.py) * alpha : p.y);
-    Draw.astronaut(ctx, g, ax - Render.ox, ay - Render.oy, Draw.tm);
+    const playerItem = { kind: 'p', key: ay };
+    if (!(typeof Intro !== 'undefined' && Intro.hidePlayer)) items.push(playerItem);
+    if (typeof Intro !== 'undefined' && Intro.sortItems) Intro.sortItems(items, g);
+    items.sort((a, b) => a.key - b.key);
+    let target = ctx, xctx = null, occluded = false;
+    const pi = items.indexOf(playerItem);
+    if (pi >= 0) for (let i = pi + 1; i < items.length; i++) if (Sorter.covers(items[i], ax, ay)) { occluded = true; break; }
+    Sorter.xr = Draw.approach(Sorter.xr, occluded ? 1 : 0, Draw.dt / 0.15);
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'b') {
+        Draw.building(target, g, it.b, it.b.x - Render.ox, it.b.y - Render.oy);
+      } else if (it.kind === 'part') Sorter.drawPart(target, g, it.b, it.part);
+      else if (it.kind === 'c') Draw.drawCustomer(target, g, it.b, it.c);
+      else if (it.kind === 'p') {
+        Draw.astronaut(target, g, ax - Render.ox, ay - Render.oy, Draw.tm);
+        if (Sorter.xr > 0.01 && !App.settings.reducedFx) { xctx = Sorter.begin(ctx); target = xctx; }
+      } else if (it.draw) it.draw(target);
+    }
+    if (xctx) Sorter.end(ctx, xctx, ax - Render.ox, ay - Render.oy);
+    // ships fly above everything
+    for (let i = 0; i < ships.length; i += 2) { const b = ships[i], c = ships[i + 1]; CharArt.ship(ctx, c._wx - Render.ox, c._wy - Render.oy, c, tm, b); }
+    mark('buildings');
     Render.drawParticles(ctx);
+    Ground.clouds(ctx, Draw.tm);
     mark('chars+particles');
     // overlays
     Frame.overlays(ctx, g, vis, ax, ay);
     // atmosphere and lights
     const night = Render.drawAtmosphere(ctx, g, dt);
     Render.setWorldTransform(ctx);
+    TerrainSys.drawEmission(ctx, night, tm);
     for (const d of deps) DepositArt.dynamic(ctx, d, tm, night, App.cam.zoom);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     if (night > 0.05) Frame.nightLights(ctx, g, solid, night, ax, ay);
@@ -9956,6 +11375,25 @@ const Frame = {
       ctx.fillStyle = m.color; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = s * 0.08;
       ctx.beginPath(); ctx.moveTo(x, y - s * 0.5); ctx.lineTo(x - s * 0.35, y - s * 1.2); ctx.arc(x, y - s * 1.3, s * 0.38, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.restore();
+    }
+    // soft landing zones: pulsing hazard frame while a ship touches down
+    for (const z of Collide.zones) {
+      const a = 0.45 + 0.35 * Math.sin(Draw.tm * 8);
+      ctx.strokeStyle = 'rgba(255,194,77,' + a.toFixed(2) + ')'; ctx.lineWidth = 0.12; ctx.setLineDash([0.4, 0.25]); ctx.lineDashOffset = -Draw.tm * 1.5;
+      ctx.strokeRect(z[0] - Render.ox, z[1] - Render.oy, z[2] - z[0], z[3] - z[1]); ctx.setLineDash([]);
+    }
+    // debug: hitboxes, foot lines and sort keys
+    if (App.debug.hitboxes) {
+      ctx.lineWidth = 2 / Render.S; ctx.font = (11 / Render.S) + 'px system-ui'; ctx.textAlign = 'left';
+      for (const b of vis) {
+        for (const r of Collide.boxes(b)) { ctx.strokeStyle = 'rgba(255,80,80,.9)'; ctx.strokeRect(r[0] - Render.ox, r[1] - Render.oy, r[2] - r[0], r[3] - r[1]); }
+        if (Collide.mode(b.type) === 'none') continue;
+        const fy = Sorter.footY(b) - Render.oy;
+        ctx.strokeStyle = 'rgba(80,200,255,.9)'; ctx.beginPath(); ctx.moveTo(b.x - Render.ox, fy); ctx.lineTo(b.x + b.w - Render.ox, fy); ctx.stroke();
+        ctx.fillStyle = '#7fd3ff'; ctx.fillText((Sorter.footY(b)).toFixed(1), b.x - Render.ox, fy - 0.05);
+      }
+      for (const r of Collide.extra) { ctx.strokeStyle = 'rgba(255,160,60,.9)'; ctx.strokeRect(r[0] - Render.ox, r[1] - Render.oy, r[2] - r[0], r[3] - r[1]); }
+      const pl = g.run.player; ctx.strokeStyle = '#9bff8c'; ctx.beginPath(); ctx.arc(ax - Render.ox, ay - Render.oy, 0.28, 0, Math.PI * 2); ctx.stroke();
     }
     // pins in world
     for (const pin of g.run.pins) {
@@ -10414,6 +11852,7 @@ const Build = {
           const any = Grid.touchingDeposits(g, a.x, a.y, 2, 2);
           if (any.length) App.ghost.dep = any[0];
         }
+        if (chk.ok && Collide.mode(t.type) !== 'none') App.ghost.gap = Build.enclosesPlayer(g, spec);
       }
     } else if (App.tool && App.tool.paste) {
       Build.pasteGhost(x, y);
@@ -10423,6 +11862,26 @@ const Build = {
       App.ghost = null;
     }
     UI.updateGhostInfo();
+  },
+
+  // gentle hint (never blocking): would this placement wall the astronaut in?
+  enclosesPlayer(g, spec) {
+    const sz = Grid.size(spec.type, spec.rot, spec.len);
+    const p = g.run.player, px = Math.floor(p.x), py = Math.floor(p.y), R = 12;
+    if (Math.abs(spec.x - px) > R + 4 || Math.abs(spec.y - py) > R + 4) return false;
+    const inGhost = (x, y) => x >= spec.x && x < spec.x + sz.w && y >= spec.y && y < spec.y + sz.h;
+    const seen = new Set([px + ',' + py]), q = [[px, py]];
+    while (q.length) {
+      const [x, y] = q.shift();
+      if (Math.abs(x - px) >= R || Math.abs(y - py) >= R) return false;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + U.DX[d], ny = y + U.DY[d], k = nx + ',' + ny;
+        if (seen.has(k) || inGhost(nx, ny) || Paths.blocked(g, nx, ny)) continue;
+        seen.add(k); q.push([nx, ny]);
+      }
+      if (seen.size > 2500) return false;
+    }
+    return true;
   },
 
   tap(x, y, isTouch) {
@@ -11138,6 +12597,7 @@ const UI = {
         html += '<br><span style="color:' + DATA.TIERS[gh.dep.tier].color + '">' + esc(R.name) + '</span> · ' + Fmt.num(rate) + '/s · ≈' + Fmt.num(rate * R.value) + ' ' + CURRENCY_SHORT + '/s';
       }
       html += gh.ok ? '' : '<br><span class="bad">' + esc(gh.reason || 'Ungültig') + '</span>';
+      if (gh.ok && gh.gap) html += '<br><span style="color:#ffc24d">Lücke lassen: Hier würdest du dich einmauern.</span>';
       if (gh.ok && App.touch) html += '<br><span class="good">Nochmal tippen oder ✓ zum Bauen</span>';
     } else if (gh.list) {
       html = (gh.count !== undefined ? gh.count + ' Objekte · ' : '') + Fmt.money(gh.cost) + (gh.reason ? '<br><span class="bad">' + esc(gh.reason) + '</span>' : '');
@@ -11985,6 +13445,22 @@ const MapView = {
   pinMode: false,
   lastMini: 0,
 
+  LM_NAMES: { basin: 'Einschlagsbecken', riverbed: 'Trockenes Tal', canyon: 'Spaltennarbe', mesas: 'Mesa-Feld', devils: 'Staubteufel-Spuren', wreck: 'Wrack' },
+  landmarkIcon(ctx, lm, x, y, label) {
+    ctx.save(); ctx.translate(x, y);
+    ctx.strokeStyle = 'rgba(255,240,220,.85)'; ctx.fillStyle = 'rgba(20,14,18,.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    if (lm.type === 'basin') { ctx.arc(0, 0, 3.5, 0, Math.PI * 2); ctx.moveTo(1, 0); ctx.arc(0, 0, 1, 0, Math.PI * 2); }
+    else if (lm.type === 'riverbed') { ctx.moveTo(-4, -2); ctx.quadraticCurveTo(0, 2, 4, -1); ctx.moveTo(-4, 2); ctx.quadraticCurveTo(0, 5, 4, 2); }
+    else if (lm.type === 'canyon') { ctx.moveTo(-4, -3); ctx.lineTo(-1, 0); ctx.lineTo(1, -1); ctx.lineTo(4, 3); }
+    else if (lm.type === 'mesas') { ctx.moveTo(-4, 3); ctx.lineTo(-2, -1); ctx.lineTo(2, -1); ctx.lineTo(4, 3); }
+    else if (lm.type === 'devils') { for (let i = 0; i < 12; i++) { const a = i * 0.7, r = i * 0.35; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } }
+    else { ctx.moveTo(-3, 3); ctx.lineTo(3, -3); ctx.moveTo(-3, -3); ctx.lineTo(3, 3); ctx.moveTo(4, 0); ctx.arc(0, 0, 4, 0, Math.PI * 2); }
+    ctx.stroke();
+    if (label) { ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText(MapView.LM_NAMES[lm.type] || '', 0, -11); }
+    ctx.restore();
+  },
   cellColor(g, cx, cy, i) {
     const key = U.chunkKey(cx, cy);
     let arr = MapView.cellCache.get(key);
@@ -12007,28 +13483,50 @@ const MapView = {
     const S = CONFIG.chunkSize, C = CONFIG.fogCell, per = S / C;
     const x0 = cx - W / 2 / s, y0 = cy - H / 2 / s, x1 = cx + W / 2 / s, y1 = cy + H / 2 / s;
     const tx = x => (x - cx) * s + W / 2, ty = y => (y - cy) * s + H / 2;
-    // terrain: one pixel per fog cell, scaled up with smoothing (soft fog edge, no blocky cells)
+    // terrain: baked chunk textures (same pipeline as the world); soft fog of war on top
     const gx0 = Math.floor(x0 / C) - 1, gy0 = Math.floor(y0 / C) - 1;
     const gw = Math.ceil(x1 / C) - gx0 + 2, gh = Math.ceil(y1 / C) - gy0 + 2;
     let oc = MapView.oc;
     if (!oc || oc.width < gw || oc.height < gh) { oc = MapView.oc = document.createElement('canvas'); oc.width = Math.max(gw, 64); oc.height = Math.max(gh, 64); }
     const ox = oc.getContext('2d');
     const img = ox.createImageData(gw, gh), dd = img.data;
+    const fog = MapView.fogc || (MapView.fogc = document.createElement('canvas'));
+    if (fog.width < gw || fog.height < gh) { fog.width = Math.max(gw, 64); fog.height = Math.max(gh, 64); }
+    const fx = fog.getContext('2d'), fimg = fx.createImageData(gw, gh), fd = fimg.data;
+    let requested = 0;
     for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
       const wx = (gx0 + i) * C, wy = (gy0 + j) * C;
       const ccx = Math.floor(wx / S), ccy = Math.floor(wy / S);
       const m = g.world.discovered.get(U.chunkKey(ccx, ccy));
-      if (!m) continue;
       const li = ((wx - ccx * S) / C) + ((wy - ccy * S) / C) * per;
-      if (!(m & (1 << li))) continue;
-      const c = MapView.cellColor(g, ccx, ccy, li), o = (j * gw + i) * 4;
+      const o = (j * gw + i) * 4;
+      if (!m || !(m & (1 << li))) { fd[o] = 7; fd[o + 1] = 6; fd[o + 2] = 10; fd[o + 3] = 255; continue; }
+      const c = MapView.cellColor(g, ccx, ccy, li);
       dd[o] = c[0]; dd[o + 1] = c[1]; dd[o + 2] = c[2]; dd[o + 3] = 255;
     }
-    ox.clearRect(0, 0, oc.width, oc.height);
-    ox.putImageData(img, 0, 0);
+    ox.clearRect(0, 0, oc.width, oc.height); ox.putImageData(img, 0, 0);
     ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(oc, 0, 0, gw, gh, tx(gx0 * C), ty(gy0 * C), gw * C * s, gh * C * s);
+    // sharper baked textures where available
+    for (let ccy = Math.floor(y0 / S); ccy <= Math.floor(y1 / S); ccy++) for (let ccx = Math.floor(x0 / S); ccx <= Math.floor(x1 / S); ccx++) {
+      if (!g.world.discovered.get(U.chunkKey(ccx, ccy))) continue;
+      const e = TerrainSys.best(ccx, ccy, 0);
+      if (e) { ctx.drawImage(e.img, tx(ccx * S), ty(ccy * S), S * s + 0.6, S * s + 0.6); continue; }
+      if (requested++ < 6 && TerrainSys.P) TerrainSys.request(g, ccx, ccy, 0, 20);
+    }
+    fx.clearRect(0, 0, fog.width, fog.height); fx.putImageData(fimg, 0, 0);
+    ctx.drawImage(fog, 0, 0, gw, gh, tx(gx0 * C), ty(gy0 * C), gw * C * s, gh * C * s);
     ctx.restore();
+    TerrainSys.pump();
+    // landmarks (only where discovered)
+    if (TerrainSys.P && s >= 0.6) {
+      const LC = TerrainCore.LC;
+      for (let lj = Math.floor(y0 / LC) - 1; lj <= Math.floor(y1 / LC) + 1; lj++) for (let li2 = Math.floor(x0 / LC) - 1; li2 <= Math.floor(x1 / LC) + 1; li2++) {
+        const lm = TerrainCore.landmarkCell(li2, lj, TerrainSys.P);
+        if (!lm || !World.isDiscovered(g.world, Math.floor(lm.x), Math.floor(lm.y))) continue;
+        MapView.landmarkIcon(ctx, lm, tx(lm.x), ty(lm.y), opts.labels);
+      }
+    }
     // buildings
     for (const b of g.buildings.values()) {
       const r = b.type === 'bridge' ? Grid.rect(b) : b;
@@ -12289,6 +13787,7 @@ const Debug = {
     panel.append(h('b', { text: 'Welt' }));
     panel.append(row(btn('Seed neu würfeln', () => { g.meta.baseSeed = RNG.newSeed(); const g2 = Game.create(g.meta, g.run.planet); MainLoop.start(g2, { fresh: true }); Debug.show(); }),
       btn((App.debug.chunkBorders ? '☑' : '☐') + ' Chunk-Grenzen', () => { App.debug.chunkBorders = !App.debug.chunkBorders; Debug.show(); }),
+      btn((App.debug.hitboxes ? '☑' : '☐') + ' Hitboxen & Sortierung', () => { App.debug.hitboxes = !App.debug.hitboxes; Debug.show(); }),
       btn((App.debug.wallhack ? '☑' : '☐') + ' Alle Vorkommen', () => { App.debug.wallhack = !App.debug.wallhack; if (App.debug.wallhack) { const p = g.run.player; for (const d of World.depositsInRadius(g.world, p.x, p.y, 200)) g.world.known.add(d.id); World.discover(g.world, p.x, p.y, 200); } Debug.show(); })));
     panel.append(h('b', { text: 'Ereignisse' }));
     panel.append(row(btn('Positives Event', () => { if (!Economy.spawnEvent(g, true)) UI.toast('Erst etwas produzieren'); }), btn('Negatives Event', () => { if (!Economy.spawnEvent(g, false)) UI.toast('Erst etwas produzieren'); }), btn('Vertrag', () => { const c = Customers.makeContract(g); if (c) { g.run.contracts.push(c); g.events.push({ type: 'contractNew', c }); } })));
@@ -12809,6 +14308,202 @@ const PlanetArt = {
   }
 };
 
+// ===== src/app/14b_planetcore.js =====
+// =====================================================================
+// PlanetCore: high-resolution planet renderer for the title screen and
+// the intro (runs in a Web Worker built from its own source; DOM free).
+// A seamless equirectangular texture is generated once per planet
+// (3D noise on the sphere, smooth thresholds, so no stair steps), then
+// each view is mapped onto a lit sphere: soft terminator with scatter,
+// frayed polar caps, cloud layer with shadows, night-side fill light.
+// =====================================================================
+const PlanetCore = {
+  hi(x, y, z, s) { let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(z | 0, 2246822519) ^ Math.imul(s | 0, 3266489917); h = Math.imul(h ^ (h >>> 13), 1274126177); h = Math.imul(h ^ (h >>> 16), 668265263); return ((h ^ (h >>> 15)) >>> 0) / 4294967296; },
+  vn(x, y, z, s) {
+    const H = PlanetCore.hi, xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+    const xf = x - xi, yf = y - yi, zf = z - zi;
+    const u = xf * xf * xf * (xf * (xf * 6 - 15) + 10), v = yf * yf * yf * (yf * (yf * 6 - 15) + 10), w = zf * zf * zf * (zf * (zf * 6 - 15) + 10);
+    const a = H(xi, yi, zi, s), b = H(xi + 1, yi, zi, s), c = H(xi, yi + 1, zi, s), d = H(xi + 1, yi + 1, zi, s);
+    const e = H(xi, yi, zi + 1, s), f = H(xi + 1, yi, zi + 1, s), g = H(xi, yi + 1, zi + 1, s), h = H(xi + 1, yi + 1, zi + 1, s);
+    const x1 = a + (b - a) * u, x2 = c + (d - c) * u, x3 = e + (f - e) * u, x4 = g + (h - g) * u;
+    const y1 = x1 + (x2 - x1) * v, y2 = x3 + (x4 - x3) * v;
+    return y1 + (y2 - y1) * w;
+  },
+  fbm(x, y, z, s, o) { let a = 0.5, f = 1, t = 0, n = 0; for (let i = 0; i < o; i++) { t += a * PlanetCore.vn(x * f, y * f, z * f, s + i * 17); n += a; a *= 0.5; f *= 2.03; } return t / n; },
+  ss(a, b, x) { let t = (x - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); },
+  // equirect texture (RGB + emission + cloud alpha), generated once per planet
+  texture(job) {
+    const P = PlanetCore, TW = job.tw, TH = TW >> 1, s = job.seed, st = job.style, C = job.col;
+    const rgb = new Uint8ClampedArray(TW * TH * 3), em = new Uint8ClampedArray(TW * TH), cl = new Uint8ClampedArray(TW * TH);
+    const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    // a few big craters and one long canyon scar (Ares-like worlds)
+    const craters = [[0.6, 0.2, 0.62, 0.16], [2.4, -0.4, 0.55, 0.11], [4.1, 0.35, 0.6, 0.13]];
+    for (let j = 0; j < TH; j++) {
+      const lat = (j / (TH - 1) - 0.5) * Math.PI, cla = Math.cos(lat), sla = Math.sin(lat);
+      for (let i = 0; i < TW; i++) {
+        const lon = i / TW * Math.PI * 2;
+        const x = cla * Math.cos(lon), y = sla, z = cla * Math.sin(lon);
+        const wx = x + 0.35 * (P.fbm(x * 1.5 + 3, y * 1.5, z * 1.5, s + 3, 3) - 0.5), wz = z + 0.35 * (P.fbm(x * 1.5, y * 1.5 + 7, z * 1.5, s + 4, 3) - 0.5);
+        const n = P.fbm(wx * 2.4 + 5, y * 2.4 + 5, wz * 2.4 + 5, s, 5);
+        const n2 = P.fbm(x * 6 + 11, y * 6 + 11, z * 6 + 11, s + 9, 4);
+        let col, e = 0;
+        if (st === 'gas') {
+          const band = Math.sin(lat * 9 + (n - 0.5) * 5 + (n2 - 0.5) * 2);
+          const k2 = (band * 0.5 + 0.5) * 3, a = Math.floor(k2), f = k2 - a;
+          const pal = [C[1], C[6], C[2], C[7]];
+          col = mix(pal[a], pal[Math.min(3, a + 1)], f);
+          col = mix(col, C[0], 0.2);
+        } else {
+          // dark volcanic regions with soft organic edges, bright dust plains, fine dust bands
+          const dark = P.ss(0.47, 0.58, n);
+          col = mix(C[2], C[0], dark * 0.85);
+          col = mix(col, C[3], P.ss(0.58, 0.72, n2) * 0.25);
+          col = mix(col, C[4], P.ss(0.35, 0.25, n) * 0.5);
+          const bands = Math.sin(lat * 22 + n * 6) * 0.5 + 0.5;
+          col = mix(col, C[2], bands * 0.08);
+          if (st === 'patina') col = mix(col, C[6], P.ss(0.36, 0.28, n));
+          if (st === 'ice') { const rid = Math.abs(P.fbm(x * 4, y * 4, z * 4, s + 21, 3) - 0.5); col = mix(col, C[5], P.ss(0.03, 0.0, rid) * 0.7); }
+          if (st === 'lava') { const rid = Math.abs(P.fbm(x * 3.5, y * 3.5, z * 3.5, s + 22, 4) - 0.5); e = P.ss(0.045, 0.0, rid); col = mix(col, C[6], e * 0.6); }
+          if (st === 'jungle') col = mix(col, C[6], P.ss(0.45, 0.6, n2) * 0.35);
+          if (st === 'crystal') { const c2 = Math.floor(n * 9) / 9; col = mix(C[1], C[2], c2); if (n2 > 0.7) e = (n2 - 0.7) * 2; }
+          if (st === 'dark') { const sw = P.fbm(x * 1.6 + 3, y * 3 + 3, z * 1.6 + 3, s + 7, 4); col = mix(col, C[6], P.ss(0.58, 0.75, sw) * 0.6); e = P.ss(0.6, 0.8, sw) * 0.6; }
+          // canyon scar (a long, soft groove)
+          if (st === 'rocky' || st === 'patina') { const cy = Math.abs(y - 0.05 * Math.sin(lon * 3) - 0.08); if (lon > 1.2 && lon < 2.9) { const k = P.ss(0.03, 0.0, cy) * P.ss(1.2, 1.5, lon) * P.ss(2.9, 2.6, lon); col = mix(col, C[0], k * 0.7); } }
+          // big craters: dark floor, bright lit rim (light comes from the upper left)
+          for (const c of craters) {
+            const cx = Math.cos(c[1]) * Math.cos(c[0]), cyy = Math.sin(c[1]), cz = Math.cos(c[1]) * Math.sin(c[0]);
+            const d = Math.hypot(x - cx, y - cyy, z - cz);
+            if (d < c[3] * 1.3) { const q = d / c[3]; if (q < 0.9) col = mix(col, C[0], 0.25 * (1 - q)); else col = mix(col, C[5], 0.35 * P.ss(1.25, 1.0, q) * P.ss(0.85, 1.0, q)); }
+          }
+        }
+        // frayed, spiralling polar caps with broken-off islands (soft edges, no steps)
+        if (job.caps) {
+          const pa = Math.abs(sla);
+          const spiral = Math.sin(lon * 3 + pa * 18 + (n2 - 0.5) * 6) * 0.02;
+          const edge = 0.9 + spiral + (n - 0.5) * 0.06;
+          const isl = P.ss(0.6, 0.66, n2) * P.ss(edge - 0.07, edge - 0.02, pa);
+          const k = Math.max(P.ss(edge - 0.012, edge + 0.012, pa), isl * 0.85);
+          if (k > 0) { const ice = mix([0.93, 0.95, 0.98], [0.82, 0.88, 0.95], P.ss(0.4, 0.7, n2)); col = mix(col, ice, k); }
+        }
+        const o = (j * TW + i);
+        rgb[o * 3] = col[0] * 255; rgb[o * 3 + 1] = col[1] * 255; rgb[o * 3 + 2] = col[2] * 255;
+        em[o] = e * 255;
+        if (job.clouds > 0) {
+          const c = P.fbm(x * 3 + 21, y * 7 + 21, z * 3 + 21, s + 31, 5);
+          cl[o] = P.ss(0.62 - job.clouds * 0.2, 0.78 - job.clouds * 0.2, c) * 235;
+        }
+      }
+    }
+    return { TW, TH, rgb, em, cl };
+  },
+  // maps the texture onto a lit sphere; renders only the requested rect of the disc
+  render(job, T) {
+    const D = job.D, R = D / 2, x0 = job.rx, y0 = job.ry, W = job.rw, H = job.rh;
+    const out = new Uint8ClampedArray(W * H * 4);
+    const L = [-0.62, -0.5, 0.6], ll = Math.hypot(L[0], L[1], L[2]); L[0] /= ll; L[1] /= ll; L[2] /= ll;
+    const { TW, TH, rgb, em, cl } = T, rot = job.rot, crot = job.crot;
+    const emc = job.emc;
+    const samp = (arr, st, ch, u, v) => {
+      const fu = u * TW, fv = v * (TH - 1), i0 = Math.floor(fu), j0 = Math.floor(fv), a = fu - i0, b = fv - j0;
+      const i1 = (i0 + 1) % TW, ia = ((i0 % TW) + TW) % TW, j1 = Math.min(TH - 1, j0 + 1);
+      const p00 = arr[(j0 * TW + ia) * st + ch], p10 = arr[(j0 * TW + i1) * st + ch], p01 = arr[(j1 * TW + ia) * st + ch], p11 = arr[(j1 * TW + i1) * st + ch];
+      return (p00 + (p10 - p00) * a) * (1 - b) + (p01 + (p11 - p01) * a) * b;
+    };
+    for (let py = 0; py < H; py++) {
+      const ny = (y0 + py + 0.5 - R) / R;
+      for (let px = 0; px < W; px++) {
+        const nx = (x0 + px + 0.5 - R) / R, q = nx * nx + ny * ny;
+        if (q >= 1) continue;
+        const nz = Math.sqrt(1 - q);
+        const lat = Math.asin(ny);
+        const lonA = Math.atan2(nx, nz);
+        let u = ((lonA + rot) / (Math.PI * 2)) % 1; if (u < 0) u += 1;
+        let uc = ((lonA + crot) / (Math.PI * 2)) % 1; if (uc < 0) uc += 1;
+        const v = lat / Math.PI + 0.5;
+        let r = samp(rgb, 3, 0, u, v), g = samp(rgb, 3, 1, u, v), b = samp(rgb, 3, 2, u, v);
+        const dot = nx * L[0] + ny * L[1] + nz * L[2];
+        // soft terminator with a little scatter; night side keeps ~6 % cool fill light
+        const lit = Math.max(0, Math.min(1, (dot + 0.18) / 0.72));
+        const day = lit * lit * (3 - 2 * lit);
+        let c = 0;
+        if (T.hasClouds) {
+          c = samp(cl, 1, 0, uc, v) / 255;
+          // cloud shadow: sample the cloud layer slightly towards the light
+          const cs = samp(cl, 1, 0, (uc + 0.004) % 1, Math.min(1, v + 0.004)) / 255;
+          const sh = 1 - cs * 0.35 * day;
+          r *= sh; g *= sh; b *= sh;
+        }
+        const limb = 0.78 + 0.22 * nz;
+        let rr = r * (0.06 + 0.94 * day) * limb + 255 * 0.012 * (1 - day), gg = g * (0.06 + 0.94 * day) * limb + 255 * 0.016 * (1 - day), bb = b * (0.06 + 0.94 * day) * limb + 255 * 0.03 * (1 - day);
+        if (c > 0) { const cl2 = (0.08 + 0.92 * day) * limb * 245; rr += (cl2 - rr) * c; gg += (cl2 * 0.98 - gg) * c; bb += (cl2 * 1.02 - bb) * c; }
+        const e = samp(em, 1, 0, u, v) / 255 * (1 - c);
+        if (e > 0) { const k = e * (0.35 + 0.65 * (1 - day)); rr += emc[0] * k; gg += emc[1] * k; bb += emc[2] * k; }
+        // gentle haze towards the limb on the lit side
+        const haze = Math.pow(1 - nz, 3) * day * 0.5;
+        rr += (job.sky[0] - rr) * haze; gg += (job.sky[1] - gg) * haze; bb += (job.sky[2] - bb) * haze;
+        const o = (py * W + px) * 4;
+        out[o] = rr; out[o + 1] = gg; out[o + 2] = bb;
+        const edge = (1 - Math.sqrt(q)) * R;
+        out[o + 3] = edge < 1.2 ? Math.max(0, edge / 1.2) * 255 : 255;
+      }
+    }
+    return out;
+  }
+};
+
+// main-thread side: worker management, cached texture per planet, bitmap views
+const PlanetView = {
+  worker: null, busy: false, pending: null, cb: null, tex: null, seq: 0,
+  src() {
+    const parts = [];
+    for (const [k, v] of Object.entries(PlanetCore)) parts.push(typeof v === 'function' ? v.toString() : k + ': ' + JSON.stringify(v));
+    return 'const PlanetCore = {\n' + parts.join(',\n') + '\n};\nlet TEX = null, TEXKEY = "";\n' +
+      'self.onmessage = e => { const j = e.data;\n' +
+      ' if (j.texKey !== TEXKEY) { TEX = PlanetCore.texture(j.tex); TEX.hasClouds = j.tex.clouds > 0; TEXKEY = j.texKey; }\n' +
+      ' const px = PlanetCore.render(j, TEX);\n' +
+      ' if (typeof OffscreenCanvas !== "undefined") { const oc = new OffscreenCanvas(j.rw, j.rh); oc.getContext("2d").putImageData(new ImageData(px, j.rw, j.rh), 0, 0); const bmp = oc.transferToImageBitmap(); self.postMessage({ id: j.id, bmp, rx: j.rx, ry: j.ry, D: j.D }, [bmp]); }\n' +
+      ' else self.postMessage({ id: j.id, px, rx: j.rx, ry: j.ry, rw: j.rw, rh: j.rh, D: j.D }, [px.buffer]); };';
+  },
+  init() {
+    if (PlanetView.worker || !window.Worker) return;
+    try {
+      PlanetView.worker = new Worker(URL.createObjectURL(new Blob([PlanetView.src()], { type: 'text/javascript' })));
+      PlanetView.worker.onmessage = e => PlanetView.done(e.data);
+    } catch (e) { PlanetView.worker = null; }
+  },
+  params(planet) {
+    const sp = PlanetArt.spec(planet), r = h => Col.rgb(h).map(v => v / 255);
+    const style = sp.style;
+    const em = style === 'lava' ? [255, 110, 40] : style === 'dark' ? [140, 125, 255] : style === 'crystal' ? [200, 240, 255] : [255, 200, 120];
+    return {
+      texKey: planet.index + '|' + sp.seed, emc: em, sky: planet.sky || [200, 200, 255],
+      tex: { seed: sp.seed, style, caps: sp.caps || style === 'ice', clouds: sp.clouds, col: [r(planet.ground[0]), r(planet.ground[1]), r(planet.ground[2]), r(planet.deco || planet.ground[2]), r(planet.rock), r('#f4ece2'), r(planet.accent), r(planet.deco || planet.accent)], tw: 2048 }
+    };
+  },
+  // request a view of the disc (diameter D, visible rect) at rotation rot; cb(bitmap, rect)
+  request(planet, D, rect, rot, cb, lowRes) {
+    PlanetView.init();
+    const P = PlanetView.params(planet);
+    if (lowRes) P.tex.tw = 512;
+    const job = Object.assign({ id: ++PlanetView.seq, D, rx: Math.max(0, rect[0] | 0), ry: Math.max(0, rect[1] | 0), rot, crot: rot * 1.25 + 0.4 }, P);
+    job.texKey += '|' + P.tex.tw;
+    job.rw = Math.max(1, Math.min(D - job.rx, rect[2] | 0)); job.rh = Math.max(1, Math.min(D - job.ry, rect[3] | 0));
+    if (!PlanetView.worker) return false;
+    if (PlanetView.busy) { PlanetView.pending = [job, cb]; return true; }
+    PlanetView.busy = true; PlanetView.cb = cb;
+    PlanetView.worker.postMessage(job);
+    return true;
+  },
+  done(m) {
+    PlanetView.busy = false;
+    let bmp = m.bmp;
+    if (!bmp && m.px) { const c = Art.canvas(m.rw, m.rh); c.getContext('2d').putImageData(new ImageData(m.px, m.rw, m.rh), 0, 0); bmp = c; }
+    const cb = PlanetView.cb; PlanetView.cb = null;
+    if (cb) cb(bmp, m.rx, m.ry, m.D);
+    if (PlanetView.pending) { const [j, c] = PlanetView.pending; PlanetView.pending = null; PlanetView.busy = true; PlanetView.cb = c; PlanetView.worker.postMessage(j); }
+  }
+};
+
 // ===== src/app/99_main.js =====
 // =====================================================================
 // MainLoop: boot, title, game start, fixed-step loop, saving, offline, events
@@ -12891,7 +14586,7 @@ const MainLoop = {
     UI.select(null);
     Build.exit();
     App.blueprint = null;
-    Render.setPlanet(g.world.planet);
+    Render.setPlanet(g.world.planet, g.world.seed);
     MapView.cellCache.clear();
     Render.particles.length = 0; Render.floating.length = 0; Render.edgeMarks.length = 0;
     App.cam.x = g.run.player.x; App.cam.y = g.run.player.y; App.cam.follow = true;
@@ -12980,6 +14675,8 @@ const MainLoop = {
           if (!App.settings.reducedFx) Render.coinBurst(b.x + b.w / 2, b.y + b.h * 0.45, Math.min(18, 5 + e.entry.tier * 3));
           break;
         }
+        case 'stuck': UI.toast('Du steckst fest. Befreit.'); break;
+        case 'landingZone': Audio2.play('horn'); UI.toast('Achtung: Landezone wird geräumt.'); break;
         case 'tip': Audio2.play('coin'); Render.float('+' + Fmt.num(e.tp.value) + ' Trinkgeld', e.tp.x, e.tp.y, '#ffd24a'); break;
         case 'codex': {
           const R = DATA.RESOURCES[e.res];
@@ -13128,7 +14825,7 @@ const MainLoop = {
 };
 
 // Small handle for automated tests and power users (read-only use recommended).
-window.__AO__ = { Art, ItemArt, FxLib, BuildingArt, BeltArt, CharArt, DepositArt, DecorArt, PlanetArt: typeof PlanetArt !== 'undefined' ? PlanetArt : null, ALIEN_SPECIES, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
+window.__AO__ = { Art, ItemArt, FxLib, TerrainCore, TerrainSys, RockArt, BuildingArt, BeltArt, CharArt, DepositArt, DecorArt, PlanetArt: typeof PlanetArt !== 'undefined' ? PlanetArt : null, ALIEN_SPECIES, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
 MainLoop.boot();
 
 })();

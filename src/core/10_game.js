@@ -219,9 +219,24 @@ const Game = {
     if (Math.abs(p.vx) < 0.01 && len === 0) p.vx = 0;
     if (Math.abs(p.vy) < 0.01 && len === 0) p.vy = 0;
     p.px = p.x; p.py = p.y;
-    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (g.introLock) { p.vx = 0; p.vy = 0; p.moving = false; return; }
+    Collide.updateZones(g);
+    const ox = p.x, oy = p.y;
+    Collide.move(g, p, p.vx * dt, p.vy * dt, dt);
+    // stuck rescue: pushing for 1.5 s without moving -> glide to the nearest free point
+    if (len > 0.3 && !p.rescue && Math.hypot(p.x - ox, p.y - oy) < 0.01 * Math.max(1, speed * dt * 10)) {
+      p.stuckT = (p.stuckT || 0) + dt;
+      if (p.stuckT > 1.5) {
+        const enc = Collide.freePoint(g, p.x, p.y, 0.3);
+        const far = Math.hypot(enc[0] - p.x, enc[1] - p.y) > 0.05;
+        // only when truly enclosed: no direction is free within one step
+        let free = 0; for (let a = 0; a < 8; a++) if (!Collide.blockedAt(g, p.x + Math.cos(a * 0.785) * 0.4, p.y + Math.sin(a * 0.785) * 0.4, 0.28)) free++;
+        if (free === 0 || far) { const fp = free === 0 ? Collide.freePoint(g, p.x + 0.01, p.y + 0.01, 0.3) : enc; p.rescue = fp; g.events.push({ type: 'stuck' }); }
+        p.stuckT = 0;
+      }
+    } else p.stuckT = 0;
     p.x = U.clamp(p.x, -2e6, 2e6); p.y = U.clamp(p.y, -2e6, 2e6);
-    p.moving = Math.hypot(p.vx, p.vy) > 0.3;
+    p.moving = Math.hypot(p.x - p.px, p.y - p.py) / Math.max(1e-4, dt) > 0.3 && Math.hypot(p.vx, p.vy) > 0.3;
     if (Math.abs(p.vx) > 0.2) p.face = p.vx > 0 ? 1 : -1;
     const cell = Math.floor(p.x / 4) + ',' + Math.floor(p.y / 4);
     if (cell !== g.lastCell) {

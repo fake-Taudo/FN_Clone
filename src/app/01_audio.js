@@ -88,6 +88,7 @@ const Audio2 = {
       case 'rebirth': Audio2.noise(2.4, 0.25, { f0: 200, f1: 6000, attack: 0.8 }); Audio2.tone(60, 2.5, 'sawtooth', 0.12, { slide: 600, attack: 0.5 }); break;
       case 'land': Audio2.noise(1.2, 0.2, { f0: 3000, f1: 150 }); break;
       case 'warn': Audio2.tone(620, 0.1, 'square', 0.05); Audio2.tone(620, 0.1, 'square', 0.05, { delay: 0.16 }); break;
+      case 'horn': Audio2.tone(310, 0.35, 'sawtooth', 0.06); Audio2.tone(370, 0.35, 'sawtooth', 0.05); break;
     }
   },
   // Ambient drone per planet: two detuned oscillators through a slowly moving filter.

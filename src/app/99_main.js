@@ -79,7 +79,7 @@ const MainLoop = {
     UI.select(null);
     Build.exit();
     App.blueprint = null;
-    Render.setPlanet(g.world.planet);
+    Render.setPlanet(g.world.planet, g.world.seed);
     MapView.cellCache.clear();
     Render.particles.length = 0; Render.floating.length = 0; Render.edgeMarks.length = 0;
     App.cam.x = g.run.player.x; App.cam.y = g.run.player.y; App.cam.follow = true;
@@ -168,6 +168,8 @@ const MainLoop = {
           if (!App.settings.reducedFx) Render.coinBurst(b.x + b.w / 2, b.y + b.h * 0.45, Math.min(18, 5 + e.entry.tier * 3));
           break;
         }
+        case 'stuck': UI.toast('Du steckst fest. Befreit.'); break;
+        case 'landingZone': Audio2.play('horn'); UI.toast('Achtung: Landezone wird geräumt.'); break;
         case 'tip': Audio2.play('coin'); Render.float('+' + Fmt.num(e.tp.value) + ' Trinkgeld', e.tp.x, e.tp.y, '#ffd24a'); break;
         case 'codex': {
           const R = DATA.RESOURCES[e.res];
@@ -316,5 +318,5 @@ const MainLoop = {
 };
 
 // Small handle for automated tests and power users (read-only use recommended).
-window.__AO__ = { Art, ItemArt, FxLib, BuildingArt, BeltArt, CharArt, DepositArt, DecorArt, PlanetArt: typeof PlanetArt !== 'undefined' ? PlanetArt : null, ALIEN_SPECIES, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
+window.__AO__ = { Art, ItemArt, FxLib, TerrainCore, TerrainSys, RockArt, BuildingArt, BeltArt, CharArt, DepositArt, DecorArt, PlanetArt: typeof PlanetArt !== 'undefined' ? PlanetArt : null, ALIEN_SPECIES, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
 MainLoop.boot();

@@ -30,14 +30,6 @@ const Frame = {
     const mark = k => { if (!P) return; const n = performance.now(); P[k] = (P[k] || 0) * 0.95 + (n - pt) * 0.05; pt = n; };
     Render.drawTerrain(ctx, g, vr); mark('terrain');
     Render.drawDecor(ctx, g, vr);
-    Render.drawPrints(ctx); mark('decor');
-    const deps = Frame.deps || (Frame.deps = []);
-    deps.length = 0;
-    World.depositsInRect(g.world, vr.x0 - 2, vr.y0 - 2, vr.x1 + 2, vr.y1 + 2, deps);
-    const dppt = Art.bucket(Render.ppt(), 96);
-    for (const d of deps) { const s = DepositArt.sprite(d, dppt); ctx.drawImage(s.canvas, s.ox - Render.ox, s.oy - Render.oy, s.w, s.h); }
-    mark('deposits');
-    if (App.debug.chunkBorders) Frame.chunkBorders(ctx, vr);
     // collect visible buildings
     const S = CONFIG.chunkSize;
     const vis = Frame.vis || (Frame.vis = []);
@@ -56,6 +48,19 @@ const Frame = {
       }
     }
     mark('collect');
+    // ground stories: trampled paths, foundation zones, prints
+    Ground.drawWear(ctx, vr);
+    Ground.drawFoundations(ctx, vis);
+    if (typeof Intro !== 'undefined' && Intro.groundDecals) Intro.groundDecals(ctx, g);
+    Render.drawPrints(ctx); mark('decor');
+    const deps = Frame.deps || (Frame.deps = []);
+    deps.length = 0;
+    World.depositsInRect(g.world, vr.x0 - 2, vr.y0 - 2, vr.x1 + 2, vr.y1 + 2, deps);
+    const dppt = Art.bucket(Render.ppt(), 96);
+    for (const d of deps) { const r = Ground.depositRing(d, Math.min(64, dppt)); ctx.drawImage(r.canvas, r.ox - Render.ox, r.oy - Render.oy, r.w, r.h); }
+    for (const d of deps) { const s = DepositArt.sprite(d, dppt); ctx.drawImage(s.canvas, s.ox - Render.ox, s.oy - Render.oy, s.w, s.h); }
+    mark('deposits');
+    if (App.debug.chunkBorders) Frame.chunkBorders(ctx, vr);
     // layer 1: flat things (paths, belts, belt items)
     for (const b of vis) if (b.type === 'path') Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
     const belts = Frame.belts || (Frame.belts = []);
@@ -65,21 +70,24 @@ const Frame = {
     BeltArt.drawItems(ctx, g, belts, alpha, Draw.tm);
     BeltArt.plops(g, belts);
     mark('belts+items');
-    // layer 2: batched cast shadows, then buildings back to front
+    // ground pass: flat transport nodes, bridges and the flat bases of large stations (always under figures)
     const solid = Frame.solid || (Frame.solid = []);
     solid.length = 0;
-    for (const b of vis) if (b.type !== 'path' && b.type !== 'belt' && b.type !== 'bridge') solid.push(b);
-    BuildingArt.castShadows(ctx, g, solid);
-    solid.sort((a, b) => (a.y + a.h) - (b.y + b.h) || a.x - b.x);
     const isz = 0.2;
-    for (const b of solid) {
-      Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
-      if (b.buf && b.type !== 'extractor' && b.buf.length) Draw.item(ctx, b.buf[0].res, b.buf[0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
-      if (b.lanes) for (let d = 0; d < 4; d++) if (b.lanes[d] && b.lanes[d].length) Draw.item(ctx, b.lanes[d][0].res, b.lanes[d][0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
+    for (const b of vis) {
+      if (b.type === 'path' || b.type === 'belt' || b.type === 'bridge') continue;
+      if (Grid.isTransport(b.type)) {
+        Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
+        if (b.buf && b.buf.length) Draw.item(ctx, b.buf[0].res, b.buf[0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
+        if (b.lanes) for (let d = 0; d < 4; d++) if (b.lanes[d] && b.lanes[d].length) Draw.item(ctx, b.lanes[d][0].res, b.lanes[d][0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
+        continue;
+      }
+      solid.push(b);
     }
+    for (const b of solid) if (Sorter.isSplit(b)) Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
     for (const b of vis) if (b.type === 'bridge') Draw.bridge(ctx, g, b, alpha);
-    mark('buildings');
-    // tips: spinning coins with a glow
+    BuildingArt.castShadows(ctx, g, solid);
+    // tips: spinning coins with a glow (on the ground)
     const tm = Draw.tm;
     for (const tp of g.run.tips) {
       const bob = Math.abs(Math.sin(tm * 3 + tp.x)) * 0.18;
@@ -88,18 +96,50 @@ const Frame = {
       Draw.glowAt(ctx, x, y - bob, 0.55, '#ffd24a', 0.55);
       ctx.drawImage(FxLib.get('coin', Math.floor(tm * 10 + tp.x) & 7), x - 0.22, y - bob - 0.22, 0.44, 0.44);
     }
-    // customers and the astronaut
-    for (const b of solid) if (b.customers && b.customers.length) Draw.customers(ctx, g, b);
+    // sorted layer: buildings, tall parts of stations, customers, astronaut, lander (by foot line)
+    const items = Frame.items || (Frame.items = []);
+    items.length = 0;
+    const ships = Frame.ships || (Frame.ships = []);
+    ships.length = 0;
+    for (const b of solid) {
+      if (Sorter.isSplit(b)) { for (const part of Sorter.TALL[b.type](b.w, b.h)) items.push({ kind: 'part', key: b.y + part[4], b, part }); }
+      else items.push({ kind: 'b', key: Sorter.footY(b), b });
+      if (b.customers && b.customers.length) Draw.prepareCustomers(g, b, items, ships);
+    }
     const p = g.run.player;
     const ax = (p.px !== undefined ? p.px + (p.x - p.px) * alpha : p.x), ay = (p.py !== undefined ? p.py + (p.y - p.py) * alpha : p.y);
-    Draw.astronaut(ctx, g, ax - Render.ox, ay - Render.oy, Draw.tm);
+    const playerItem = { kind: 'p', key: ay };
+    if (!(typeof Intro !== 'undefined' && Intro.hidePlayer)) items.push(playerItem);
+    if (typeof Intro !== 'undefined' && Intro.sortItems) Intro.sortItems(items, g);
+    items.sort((a, b) => a.key - b.key);
+    let target = ctx, xctx = null, occluded = false;
+    const pi = items.indexOf(playerItem);
+    if (pi >= 0) for (let i = pi + 1; i < items.length; i++) if (Sorter.covers(items[i], ax, ay)) { occluded = true; break; }
+    Sorter.xr = Draw.approach(Sorter.xr, occluded ? 1 : 0, Draw.dt / 0.15);
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === 'b') {
+        Draw.building(target, g, it.b, it.b.x - Render.ox, it.b.y - Render.oy);
+      } else if (it.kind === 'part') Sorter.drawPart(target, g, it.b, it.part);
+      else if (it.kind === 'c') Draw.drawCustomer(target, g, it.b, it.c);
+      else if (it.kind === 'p') {
+        Draw.astronaut(target, g, ax - Render.ox, ay - Render.oy, Draw.tm);
+        if (Sorter.xr > 0.01 && !App.settings.reducedFx) { xctx = Sorter.begin(ctx); target = xctx; }
+      } else if (it.draw) it.draw(target);
+    }
+    if (xctx) Sorter.end(ctx, xctx, ax - Render.ox, ay - Render.oy);
+    // ships fly above everything
+    for (let i = 0; i < ships.length; i += 2) { const b = ships[i], c = ships[i + 1]; CharArt.ship(ctx, c._wx - Render.ox, c._wy - Render.oy, c, tm, b); }
+    mark('buildings');
     Render.drawParticles(ctx);
+    Ground.clouds(ctx, Draw.tm);
     mark('chars+particles');
     // overlays
     Frame.overlays(ctx, g, vis, ax, ay);
     // atmosphere and lights
     const night = Render.drawAtmosphere(ctx, g, dt);
     Render.setWorldTransform(ctx);
+    TerrainSys.drawEmission(ctx, night, tm);
     for (const d of deps) DepositArt.dynamic(ctx, d, tm, night, App.cam.zoom);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     if (night > 0.05) Frame.nightLights(ctx, g, solid, night, ax, ay);
@@ -277,6 +317,25 @@ const Frame = {
       ctx.fillStyle = m.color; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = s * 0.08;
       ctx.beginPath(); ctx.moveTo(x, y - s * 0.5); ctx.lineTo(x - s * 0.35, y - s * 1.2); ctx.arc(x, y - s * 1.3, s * 0.38, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.restore();
+    }
+    // soft landing zones: pulsing hazard frame while a ship touches down
+    for (const z of Collide.zones) {
+      const a = 0.45 + 0.35 * Math.sin(Draw.tm * 8);
+      ctx.strokeStyle = 'rgba(255,194,77,' + a.toFixed(2) + ')'; ctx.lineWidth = 0.12; ctx.setLineDash([0.4, 0.25]); ctx.lineDashOffset = -Draw.tm * 1.5;
+      ctx.strokeRect(z[0] - Render.ox, z[1] - Render.oy, z[2] - z[0], z[3] - z[1]); ctx.setLineDash([]);
+    }
+    // debug: hitboxes, foot lines and sort keys
+    if (App.debug.hitboxes) {
+      ctx.lineWidth = 2 / Render.S; ctx.font = (11 / Render.S) + 'px system-ui'; ctx.textAlign = 'left';
+      for (const b of vis) {
+        for (const r of Collide.boxes(b)) { ctx.strokeStyle = 'rgba(255,80,80,.9)'; ctx.strokeRect(r[0] - Render.ox, r[1] - Render.oy, r[2] - r[0], r[3] - r[1]); }
+        if (Collide.mode(b.type) === 'none') continue;
+        const fy = Sorter.footY(b) - Render.oy;
+        ctx.strokeStyle = 'rgba(80,200,255,.9)'; ctx.beginPath(); ctx.moveTo(b.x - Render.ox, fy); ctx.lineTo(b.x + b.w - Render.ox, fy); ctx.stroke();
+        ctx.fillStyle = '#7fd3ff'; ctx.fillText((Sorter.footY(b)).toFixed(1), b.x - Render.ox, fy - 0.05);
+      }
+      for (const r of Collide.extra) { ctx.strokeStyle = 'rgba(255,160,60,.9)'; ctx.strokeRect(r[0] - Render.ox, r[1] - Render.oy, r[2] - r[0], r[3] - r[1]); }
+      const pl = g.run.player; ctx.strokeStyle = '#9bff8c'; ctx.beginPath(); ctx.arc(ax - Render.ox, ay - Render.oy, 0.28, 0, Math.PI * 2); ctx.stroke();
     }
     // pins in world
     for (const pin of g.run.pins) {

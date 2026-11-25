@@ -43,7 +43,7 @@ const BuildingArt = {
     if (alpha < 1) { const a = ctx.globalAlpha; ctx.globalAlpha = a * alpha; ctx.drawImage(s.canvas, x + s.ox, y + s.oy, s.w, s.h); ctx.globalAlpha = a; }
     else ctx.drawImage(s.canvas, x + s.ox, y + s.oy, s.w, s.h);
   },
-  ROT_FREE: { extractor: 1, cooler: 1, servo: 1, charger: 1, lab: 1, bazaar: 1, caravan: 1, shuttlepad: 1, port: 1, dock: 1, terminal: 1, lamp: 1, flag: 1, plant: 1, beacon: 1, path: 1, fence: 1 },
+  ROT_FREE: { extractor: 1, cooler: 1, servo: 1, charger: 1, lab: 1, caravan: 1, shuttlepad: 1, port: 1, dock: 1, terminal: 1, lamp: 1, flag: 1, plant: 1, beacon: 1, path: 1, fence: 1 },
   rotKey(b) { return BuildingArt.ROT_FREE[b.type] ? 0 : b.rot; },
 
   // ---------------- shared painting helpers ----------------
@@ -340,12 +340,16 @@ const BuildingArt = {
       const wood = Art.tones(vt >= 2 ? '#9a6a3a' : '#7a5232');
       Art.box(x, 0.06, 0.06, W - 0.12, H - 0.12, 0.12, wood, { r: 0.06 });
       x.strokeStyle = 'rgba(40,20,10,.35)'; x.lineWidth = 0.02; x.beginPath(); for (let yy = 0.2; yy < H - 0.1; yy += 0.22) { x.moveTo(0.1, yy - BA_E); x.lineTo(W - 0.1, yy - BA_E); } x.stroke();
-      // crates at the back
+      // crates opposite the customer side, counter on the customer side (follows rotation)
+      const side = rot & 3; // 0 south, 1 west, 2 north, 3 east
       const crate = Art.tones('#b0824a');
-      for (let i = 0; i < Math.floor(W * 1.3); i++) { const cx = 0.25 + i * 0.62 + (rnd() - 0.5) * 0.1; if (cx > W - 0.6) break; Art.box(x, cx, 0.22 - BA_E, 0.48, 0.4, 0.45 + rnd() * 0.15, crate, { r: 0.03 }); x.strokeStyle = 'rgba(60,30,10,.5)'; x.lineWidth = 0.02; x.beginPath(); x.moveTo(cx + 0.04, 0.22 - BA_E - 0.2); x.lineTo(cx + 0.44, 0.22 - BA_E + 0.36 - 0.3); x.stroke(); }
-      // counter at the front
       const ct = Art.tones(vt === 3 ? '#e8d0a0' : '#8a5a32');
-      Art.box(x, 0.18, H - 0.72 - BA_E, W - 0.36, 0.42, 0.55, ct, { r: 0.04 });
+      const crateRow = (y0) => { for (let i = 0; i < Math.floor(W * 1.3); i++) { const cx = 0.25 + i * 0.62 + (rnd() - 0.5) * 0.1; if (cx > W - 0.6) break; Art.box(x, cx, y0 - BA_E, 0.48, 0.4, 0.45 + rnd() * 0.15, crate, { r: 0.03 }); x.strokeStyle = 'rgba(60,30,10,.5)'; x.lineWidth = 0.02; x.beginPath(); x.moveTo(cx + 0.04, y0 - BA_E - 0.2); x.lineTo(cx + 0.44, y0 - BA_E + 0.36 - 0.3); x.stroke(); } };
+      const crateCol = (x0) => { for (let i = 0; i < Math.floor(H * 1.3); i++) { const cy = 0.3 + i * 0.62; if (cy > H - 0.6) break; Art.box(x, x0, cy - BA_E, 0.42, 0.45, 0.45 + rnd() * 0.15, crate, { r: 0.03 }); } };
+      if (side === 0) { crateRow(0.22); Art.box(x, 0.18, H - 0.72 - BA_E, W - 0.36, 0.42, 0.55, ct, { r: 0.04 }); }
+      else if (side === 2) { Art.box(x, 0.18, 0.14 - BA_E, W - 0.36, 0.42, 0.55, ct, { r: 0.04 }); crateRow(H - 0.72); }
+      else if (side === 1) { crateCol(W - 0.62); Art.box(x, 0.14, 0.3 - BA_E, 0.42, H - 0.6, 0.55, ct, { r: 0.04 }); }
+      else { crateCol(0.2); Art.box(x, W - 0.56, 0.3 - BA_E, 0.42, H - 0.6, 0.55, ct, { r: 0.04 }); }
       // awning (tilted cloth roof with stripes and scalloped edge)
       const c1 = vt === 0 ? '#e0703a' : vt === 1 ? '#d84fa0' : vt === 2 ? '#3a8ad8' : '#8a3ad8';
       const c2 = vt === 3 ? '#f6d98f' : '#fff3d6';

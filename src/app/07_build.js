@@ -94,6 +94,7 @@ const Build = {
           const any = Grid.touchingDeposits(g, a.x, a.y, 2, 2);
           if (any.length) App.ghost.dep = any[0];
         }
+        if (chk.ok && Collide.mode(t.type) !== 'none') App.ghost.gap = Build.enclosesPlayer(g, spec);
       }
     } else if (App.tool && App.tool.paste) {
       Build.pasteGhost(x, y);
@@ -103,6 +104,26 @@ const Build = {
       App.ghost = null;
     }
     UI.updateGhostInfo();
+  },
+
+  // gentle hint (never blocking): would this placement wall the astronaut in?
+  enclosesPlayer(g, spec) {
+    const sz = Grid.size(spec.type, spec.rot, spec.len);
+    const p = g.run.player, px = Math.floor(p.x), py = Math.floor(p.y), R = 12;
+    if (Math.abs(spec.x - px) > R + 4 || Math.abs(spec.y - py) > R + 4) return false;
+    const inGhost = (x, y) => x >= spec.x && x < spec.x + sz.w && y >= spec.y && y < spec.y + sz.h;
+    const seen = new Set([px + ',' + py]), q = [[px, py]];
+    while (q.length) {
+      const [x, y] = q.shift();
+      if (Math.abs(x - px) >= R || Math.abs(y - py) >= R) return false;
+      for (let d = 0; d < 4; d++) {
+        const nx = x + U.DX[d], ny = y + U.DY[d], k = nx + ',' + ny;
+        if (seen.has(k) || inGhost(nx, ny) || Paths.blocked(g, nx, ny)) continue;
+        seen.add(k); q.push([nx, ny]);
+      }
+      if (seen.size > 2500) return false;
+    }
+    return true;
   },
 
   tap(x, y, isTouch) {

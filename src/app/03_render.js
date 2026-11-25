@@ -40,8 +40,9 @@ const Render = {
     Render.canvas.width = Math.round(w * dpr);
     Render.canvas.height = Math.round(hh * dpr);
   },
-  setPlanet(planet) {
+  setPlanet(planet, seed) {
     Render.chunks.clear(); Render.comps.clear();
+    TerrainSys.setPlanet(planet, seed !== undefined ? seed : (App.g ? App.g.world.seed : 1));
     Render.darkGround = ItemArt.lum(planet.ground[1]) < 0.16;
     Render.lightGround = ItemArt.lum(planet.ground[1]) > 0.6;
     Art.clearPlanet();
@@ -54,6 +55,7 @@ const Render = {
       const a = PROP_SETS[Math.floor(rnd() * PROP_SETS.length)], b = PROP_SETS[Math.floor(rnd() * PROP_SETS.length)];
       Render.look = { zones: [Col.shade(planet.ground[0], 0.15), Col.mix(planet.ground[2], planet.accent, 0.25), Col.shade(planet.ground[2], 0.2)], wind: rnd() * 2 - 1, props: [...new Set(a.concat(b))].slice(0, 3), amb: AMBS[Math.floor(rnd() * AMBS.length)], rockTint: planet.rock };
     }
+    Render.look = Object.assign({}, Render.look, { wind: TerrainSys.P.wind });
     Render.prints.length = 0;
     document.documentElement.style.setProperty('--accent', planet.accent);
     const lum = Col.rgb(planet.accent).reduce((a, c, i) => a + c * [0.299, 0.587, 0.114][i], 0);
@@ -85,43 +87,7 @@ const Render = {
 
   // ---------------- terrain ----------------
   smooth(a, b, x) { const t = U.clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); },
-  terrainColor(w, x, y, out) {
-    const P = Render.palette, st = Render.planetStyle, L = Render.look;
-    const t = World.terrain(w, x, y);
-    const v = U.clamp(t.e * 0.6 + 0.5, 0, 1);
-    const band = v * 3, fl = Math.floor(band);
-    const vv = (fl + Render.smooth(0.3, 0.7, band - fl)) / 3;
-    const g0 = Col.rgb(P.ground[0]), g1 = Col.rgb(P.ground[1]), g2 = Col.rgb(P.ground[2]);
-    let r, g, b;
-    if (vv < 0.5) { const k = vv * 2; r = g0[0] + (g1[0] - g0[0]) * k; g = g0[1] + (g1[1] - g0[1]) * k; b = g0[2] + (g1[2] - g0[2]) * k; }
-    else { const k = (vv - 0.5) * 2; r = g1[0] + (g2[0] - g1[0]) * k; g = g1[1] + (g2[1] - g1[1]) * k; b = g1[2] + (g2[2] - g1[2]) * k; }
-    // large colour zones (low frequency, soft)
-    const z = w.noiseB.fbm(x / 120 + 300, y / 120 - 80, 2);
-    const mixIn = (hex, k) => { if (k <= 0) return; const c = Col.rgb(hex); r += (c[0] - r) * k; g += (c[1] - g) * k; b += (c[2] - b) * k; };
-    mixIn(L.zones[0], Render.smooth(-0.18, -0.42, z) * 0.45);
-    mixIn(L.zones[1], Render.smooth(0.2, 0.42, z) * 0.38);
-    const salt = w.noiseC.fbm(x / 70 - 40, y / 70 + 90, 2);
-    mixIn(L.zones[2], Render.smooth(0.38, 0.55, salt) * 0.4);
-    const wDune = Render.smooth(0.15, 0.35, t.b), wCrater = Render.smooth(-0.2, -0.4, t.b);
-    const wRock = Render.smooth(0.15, 0.35, t.r), wRub = Render.smooth(-0.15, -0.35, t.r);
-    let f = 1 + t.d * 0.045;
-    if (wDune > 0) { const rip = Math.sin((x * Math.cos(L.wind) + y * Math.sin(L.wind)) * 1.3 + t.e * 6); f *= 1 + wDune * (0.05 + rip * 0.05); }
-    if (wCrater > 0) f *= 1 - wCrater * 0.1;
-    if (wRub > 0 && t.d > 0.25) f *= 1 - wRub * 0.08;
-    r *= f; g *= f; b *= f;
-    if (wRock > 0) mixIn(P.rock, wRock * 0.3);
-    // planet identity baked into the ground
-    if (st === 2 && t.e < -0.42) mixIn(P.accent, Render.smooth(-0.42, -0.55, t.e) * 0.7);
-    if (st === 3) { if (t.d > 0.45) mixIn('#ffffff', 0.3); const crack = Math.abs(w.noiseC.noise2(x / 6, y / 6)); if (crack < 0.03) mixIn('#5a8ab8', 0.5); }
-    if (st === 4) { const vein = Math.abs(w.noiseC.noise2(x / 14, y / 14)); if (vein < 0.045) mixIn('#ff5a14', (1 - vein / 0.045) * 0.8); }
-    if (st === 5 && t.d > 0.3) mixIn(t.b > 0 ? '#6ad07a' : '#9a5ad6', Render.smooth(0.3, 0.6, t.d) * 0.35);
-    if (st === 6) { const gx = ((x % 6) + 6) % 6, gy = ((y % 6) + 6) % 6; if (gx < 0.1 || gy < 0.1) { r += 25; g += 45; b += 70; } }
-    if (st === 7 && t.d > 0.55) { r += 35; g += 35; b += 45; }
-    if (st === 8) { const n = w.noiseC.noise2(x * 3.1, y * 3.1); if (n > 0.8) { r = 230; g = 230; b = 255; } }
-    // muted ground (saturation economy): pull slightly towards grey
-    const gr = (r + g + b) / 3;
-    out[0] = r + (gr - r) * 0.12; out[1] = g + (gr - g) * 0.12; out[2] = b + (gr - b) * 0.12;
-  },
+  terrainColor(w, x, y, out) { TerrainCore.sampleColor(x, y, TerrainSys.P, out); },
   genChunk(g, cx, cy) {
     const S = CONFIG.chunkSize;
     const spt = App.quality === 'low' ? 2 : 3;
@@ -138,60 +104,8 @@ const Render = {
     x.putImageData(img, 0, 0);
     return c;
   },
-  drawTerrain(ctx, g, vr) {
-    const S = CONFIG.chunkSize;
-    const cx0 = Math.floor(vr.x0 / S), cy0 = Math.floor(vr.y0 / S), cx1 = Math.floor(vr.x1 / S), cy1 = Math.floor(vr.y1 / S);
-    let budget = Render.chunkGenBudget;
-    ctx.imageSmoothingEnabled = true;
-    const P = Render.palette;
-    const need = [];
-    // far/mid/near zoom: terrain + grain + decor baked per (sub-)chunk (one drawImage each)
-    const comp = Render.ppt() <= 66;
-    const cp = comp ? Art.bucket(Render.ppt(), 64) : 0;
-    const CS = cp <= 24 ? S : S / 2;
-    const drawn = Render.compDrawn || (Render.compDrawn = new Set());
-    drawn.clear();
-    let compBudget = 2;
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-      const key = U.chunkKey(cx, cy);
-      const ch = Render.chunks.get(key);
-      const rx = cx * S - Render.ox, ry = cy * S - Render.oy;
-      if (comp && ch) {
-        ch.last = App.frame;
-        let all = true;
-        for (let sy = 0; sy < S; sy += CS) for (let sx = 0; sx < S; sx += CS) {
-          const wx = cx * S + sx, wy = cy * S + sy;
-          if (wx + CS < vr.x0 || wx > vr.x1 || wy + CS < vr.y0 || wy > vr.y1) continue;
-          const sk = key + '|' + sx + '|' + sy + '|' + CS;
-          let cc = Render.comps.get(sk);
-          if ((!cc || cc.cp !== cp) && compBudget-- > 0) { cc = { canvas: Render.buildComp(g, cx, cy, sx, sy, CS, cp, ch.canvas), cp }; Render.comps.set(sk, cc); }
-          if (cc && cc.cp === cp) { cc.last = App.frame; ctx.drawImage(cc.canvas, rx + sx, ry + sy, CS + 0.02, CS + 0.02); }
-          else { all = false; ctx.drawImage(ch.canvas, sx / S * ch.canvas.width, sy / S * ch.canvas.height, CS / S * ch.canvas.width, CS / S * ch.canvas.height, rx + sx, ry + sy, CS + 0.02, CS + 0.02); }
-        }
-        if (all) drawn.add(key);
-        continue;
-      }
-      if (ch) { ch.last = App.frame; ctx.drawImage(ch.canvas, rx, ry, S + 0.02, S + 0.02); }
-      else { ctx.fillStyle = P.ground[1]; ctx.fillRect(rx, ry, S + 0.02, S + 0.02); need.push([cx, cy, U.dist2(cx * S + 16, cy * S + 16, App.cam.x, App.cam.y)]); }
-    }
-    // memory cap for baked chunks (~40 MB of pixels)
-    let px = 0; for (const e of Render.comps.values()) px += e.canvas.width * e.canvas.height;
-    const capPx = App.touch ? 6e6 : 11e6;
-    if (px > capPx) {
-      const arr = [...Render.comps.entries()].sort((a, b) => a[1].last - b[1].last);
-      for (const [k, e] of arr) { if (px <= capPx * 0.65 || e.last === App.frame) break; px -= e.canvas.width * e.canvas.height; Render.comps.delete(k); }
-    }
-    need.sort((a, b) => a[2] - b[2]);
-    for (const [cx, cy] of need) {
-      if (budget-- <= 0) break;
-      Render.chunks.set(U.chunkKey(cx, cy), { canvas: Render.genChunk(g, cx, cy), last: App.frame });
-    }
-    if (Render.chunks.size > 160) {
-      const arr = [...Render.chunks.entries()].sort((a, b) => a[1].last - b[1].last);
-      for (let i = 0; i < arr.length - 120; i++) Render.chunks.delete(arr[i][0]);
-    }
-    if (!comp) Render.drawGrain(ctx, vr);
-  },
+  // height-field terrain baked per chunk (TerrainCore / TerrainSys)
+  drawTerrain(ctx, g, vr) { TerrainSys.draw(ctx, g, vr); },
   comps: new Map(),
   buildComp(g, cx, cy, sx, sy, CS, cp, terrain) {
     const S = CONFIG.chunkSize, c = Art.canvas(CS * cp, CS * cp), x = c.getContext('2d');
@@ -282,70 +196,12 @@ const Render = {
     Render.decorCache.set(key, list);
     return list;
   },
-  drawDecor(ctx, g, vr) {
-    const S = CONFIG.chunkSize;
-    const z = App.cam.zoom;
-    const ppt = Art.bucket(Render.ppt(), 64);
-    const cx0 = Math.floor(vr.x0 / S), cy0 = Math.floor(vr.y0 / S), cx1 = Math.floor(vr.x1 / S), cy1 = Math.floor(vr.y1 / S);
-    const tm = App.now / 1000;
-    const anim = [];
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-      const baked = Render.compDrawn && Render.compDrawn.has(U.chunkKey(cx, cy));
-      for (const d of Render.decorFor(g, cx, cy)) {
-        if (d.x < vr.x0 - 6 || d.x > vr.x1 + 6 || d.y < vr.y0 - 6 || d.y > vr.y1 + 6) continue;
-        if (baked) { if (DECOR_ANIM[d.kind]) anim.push(d); continue; }
-        if (z < 12 && (d.kind === 'pebbles' || d.kind === 'dune')) continue;
-        const spr = DecorArt.sprite(d.kind, d.v, ppt);
-        const w = spr.w * d.s, h = spr.h * d.s;
-        ctx.drawImage(spr.canvas, d.x - Render.ox - w * spr.ax, d.y - Render.oy - h * spr.ay, w, h);
-        if (DECOR_ANIM[d.kind]) anim.push(d);
-      }
-    }
-    // animated props (pulsing lava, glowing mushrooms, twinkling stars ...)
-    if (anim.length && !App.settings.reducedFx) {
-      ctx.globalCompositeOperation = 'lighter';
-      for (const d of anim) {
-        const pulse = 0.55 + 0.45 * Math.sin(tm * DECOR_ANIM[d.kind].speed + d.ph * 6.28);
-        const a = DECOR_ANIM[d.kind];
-        ctx.globalAlpha = pulse * a.a;
-        const r = a.r * d.s;
-        ctx.drawImage(Sprites.glow(a.color === 'accent' ? Render.palette.accent : a.color), d.x - Render.ox - r, d.y - Render.oy - r * a.dy - r, r * 2, r * 2);
-      }
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-    }
-  },
+  // rocks and props: baked into the chunk image at far zoom, live sprites when close
+  drawDecor(ctx, g, vr) { TerrainSys.drawProps(ctx, vr); },
 
   // ---------------- footprints ----------------
-  updatePrints(g, dt) {
-    const p = g.run.player;
-    for (let i = Render.prints.length - 1; i >= 0; i--) { Render.prints[i].t += dt; if (Render.prints[i].t > 15) Render.prints.splice(i, 1); }
-    if (!p.moving) { Render.lastStep = null; return; }
-    if (!Render.lastStep) { Render.lastStep = { x: p.x, y: p.y, side: 1 }; return; }
-    const L = Render.lastStep;
-    const rover = g.run.research.done.has('rover');
-    const dist = Math.hypot(p.x - L.x, p.y - L.y);
-    if (dist < (rover ? 0.35 : 0.42)) return;
-    const a = Math.atan2(p.y - L.y, p.x - L.x);
-    L.side = -L.side;
-    if (Render.prints.length > 90) Render.prints.shift();
-    Render.prints.push({ x: p.x, y: p.y - 0.02, a, side: L.side, t: 0, rover });
-    L.x = p.x; L.y = p.y;
-    if (!App.settings.reducedFx && !rover) Render.spawn('dust', p.x + Math.cos(a + Math.PI / 2) * 0.08 * L.side, p.y, -Math.cos(a) * 0.3, -0.15, 0.7, Render.palette.particle, 0.09);
-  },
-  drawPrints(ctx) {
-    if (!Render.prints.length) return;
-    const col = Col.shade(Render.palette.ground[1], -0.4);
-    for (const f of Render.prints) {
-      const a = 1 - f.t / 15;
-      ctx.globalAlpha = a * 0.45;
-      ctx.save(); ctx.translate(f.x - Render.ox, f.y - Render.oy); ctx.rotate(f.a);
-      ctx.fillStyle = col;
-      if (f.rover) { ctx.fillRect(-0.22, -0.32, 0.44, 0.09); ctx.fillRect(-0.22, 0.23, 0.44, 0.09); }
-      else { ctx.beginPath(); ctx.ellipse(0, f.side * 0.09, 0.1, 0.05, 0, 0, Math.PI * 2); ctx.fill(); }
-      ctx.restore();
-    }
-    ctx.globalAlpha = 1;
-  },
+  updatePrints(g, dt) { Ground.update(g, dt); Ground.decayWear(dt); Ground.sandDrift(g, dt); },
+  drawPrints(ctx) { Ground.draw(ctx); },
 
   roundRect(ctx, x, y, w, hh, r) { Art.rrect(ctx, x, y, w, hh, r); },
 

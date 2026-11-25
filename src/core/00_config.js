@@ -12,7 +12,15 @@ const CONFIG = {
   chunkSize: 32,
   fogCell: 8,                   // discovery granularity in tiles (4x4 cells per chunk)
   viewDiscoverRadius: 18,       // tiles around the astronaut that become discovered
-  landing: { x: 16, y: 16 },    // landing point (centre of chunk 0/0)
+  landing: { x: 16, y: 16 },
+  // hitboxes per building type: 'none' (walkable), 'footprint' (full, inset 0.1) or 'custom' (massive parts only)
+  collision: {
+    belt: 'none', bridge: 'none', splitter: 'none', merger: 'none', crossing: 'none', fsplitter: 'none', osplitter: 'none',
+    path: 'none', lamp: 'none', flag: 'none', beacon: 'none', fence: 'none',
+    bazaar: 'custom', caravan: 'custom', shuttlepad: 'custom', port: 'custom', dock: 'custom',
+    extractor: 'footprint', refinery1: 'footprint', refinery2: 'footprint', refinery3: 'footprint', silo: 'footprint', lab: 'footprint',
+    cooler: 'footprint', servo: 'footprint', charger: 'footprint', terminal: 'footprint', plant: 'footprint'
+  },    // landing point (centre of chunk 0/0)
 
   // ---- world generation ----
   depositsPerChunk: [0.25, 0.40, 0.25, 0.10], // probability of 0/1/2/3 deposits => mean 1.2

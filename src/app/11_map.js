@@ -9,6 +9,22 @@ const MapView = {
   pinMode: false,
   lastMini: 0,
 
+  LM_NAMES: { basin: 'Einschlagsbecken', riverbed: 'Trockenes Tal', canyon: 'Spaltennarbe', mesas: 'Mesa-Feld', devils: 'Staubteufel-Spuren', wreck: 'Wrack' },
+  landmarkIcon(ctx, lm, x, y, label) {
+    ctx.save(); ctx.translate(x, y);
+    ctx.strokeStyle = 'rgba(255,240,220,.85)'; ctx.fillStyle = 'rgba(20,14,18,.55)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    if (lm.type === 'basin') { ctx.arc(0, 0, 3.5, 0, Math.PI * 2); ctx.moveTo(1, 0); ctx.arc(0, 0, 1, 0, Math.PI * 2); }
+    else if (lm.type === 'riverbed') { ctx.moveTo(-4, -2); ctx.quadraticCurveTo(0, 2, 4, -1); ctx.moveTo(-4, 2); ctx.quadraticCurveTo(0, 5, 4, 2); }
+    else if (lm.type === 'canyon') { ctx.moveTo(-4, -3); ctx.lineTo(-1, 0); ctx.lineTo(1, -1); ctx.lineTo(4, 3); }
+    else if (lm.type === 'mesas') { ctx.moveTo(-4, 3); ctx.lineTo(-2, -1); ctx.lineTo(2, -1); ctx.lineTo(4, 3); }
+    else if (lm.type === 'devils') { for (let i = 0; i < 12; i++) { const a = i * 0.7, r = i * 0.35; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } }
+    else { ctx.moveTo(-3, 3); ctx.lineTo(3, -3); ctx.moveTo(-3, -3); ctx.lineTo(3, 3); ctx.moveTo(4, 0); ctx.arc(0, 0, 4, 0, Math.PI * 2); }
+    ctx.stroke();
+    if (label) { ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.fillText(MapView.LM_NAMES[lm.type] || '', 0, -11); }
+    ctx.restore();
+  },
   cellColor(g, cx, cy, i) {
     const key = U.chunkKey(cx, cy);
     let arr = MapView.cellCache.get(key);
@@ -31,28 +47,50 @@ const MapView = {
     const S = CONFIG.chunkSize, C = CONFIG.fogCell, per = S / C;
     const x0 = cx - W / 2 / s, y0 = cy - H / 2 / s, x1 = cx + W / 2 / s, y1 = cy + H / 2 / s;
     const tx = x => (x - cx) * s + W / 2, ty = y => (y - cy) * s + H / 2;
-    // terrain: one pixel per fog cell, scaled up with smoothing (soft fog edge, no blocky cells)
+    // terrain: baked chunk textures (same pipeline as the world); soft fog of war on top
     const gx0 = Math.floor(x0 / C) - 1, gy0 = Math.floor(y0 / C) - 1;
     const gw = Math.ceil(x1 / C) - gx0 + 2, gh = Math.ceil(y1 / C) - gy0 + 2;
     let oc = MapView.oc;
     if (!oc || oc.width < gw || oc.height < gh) { oc = MapView.oc = document.createElement('canvas'); oc.width = Math.max(gw, 64); oc.height = Math.max(gh, 64); }
     const ox = oc.getContext('2d');
     const img = ox.createImageData(gw, gh), dd = img.data;
+    const fog = MapView.fogc || (MapView.fogc = document.createElement('canvas'));
+    if (fog.width < gw || fog.height < gh) { fog.width = Math.max(gw, 64); fog.height = Math.max(gh, 64); }
+    const fx = fog.getContext('2d'), fimg = fx.createImageData(gw, gh), fd = fimg.data;
+    let requested = 0;
     for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
       const wx = (gx0 + i) * C, wy = (gy0 + j) * C;
       const ccx = Math.floor(wx / S), ccy = Math.floor(wy / S);
       const m = g.world.discovered.get(U.chunkKey(ccx, ccy));
-      if (!m) continue;
       const li = ((wx - ccx * S) / C) + ((wy - ccy * S) / C) * per;
-      if (!(m & (1 << li))) continue;
-      const c = MapView.cellColor(g, ccx, ccy, li), o = (j * gw + i) * 4;
+      const o = (j * gw + i) * 4;
+      if (!m || !(m & (1 << li))) { fd[o] = 7; fd[o + 1] = 6; fd[o + 2] = 10; fd[o + 3] = 255; continue; }
+      const c = MapView.cellColor(g, ccx, ccy, li);
       dd[o] = c[0]; dd[o + 1] = c[1]; dd[o + 2] = c[2]; dd[o + 3] = 255;
     }
-    ox.clearRect(0, 0, oc.width, oc.height);
-    ox.putImageData(img, 0, 0);
+    ox.clearRect(0, 0, oc.width, oc.height); ox.putImageData(img, 0, 0);
     ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(oc, 0, 0, gw, gh, tx(gx0 * C), ty(gy0 * C), gw * C * s, gh * C * s);
+    // sharper baked textures where available
+    for (let ccy = Math.floor(y0 / S); ccy <= Math.floor(y1 / S); ccy++) for (let ccx = Math.floor(x0 / S); ccx <= Math.floor(x1 / S); ccx++) {
+      if (!g.world.discovered.get(U.chunkKey(ccx, ccy))) continue;
+      const e = TerrainSys.best(ccx, ccy, 0);
+      if (e) { ctx.drawImage(e.img, tx(ccx * S), ty(ccy * S), S * s + 0.6, S * s + 0.6); continue; }
+      if (requested++ < 6 && TerrainSys.P) TerrainSys.request(g, ccx, ccy, 0, 20);
+    }
+    fx.clearRect(0, 0, fog.width, fog.height); fx.putImageData(fimg, 0, 0);
+    ctx.drawImage(fog, 0, 0, gw, gh, tx(gx0 * C), ty(gy0 * C), gw * C * s, gh * C * s);
     ctx.restore();
+    TerrainSys.pump();
+    // landmarks (only where discovered)
+    if (TerrainSys.P && s >= 0.6) {
+      const LC = TerrainCore.LC;
+      for (let lj = Math.floor(y0 / LC) - 1; lj <= Math.floor(y1 / LC) + 1; lj++) for (let li2 = Math.floor(x0 / LC) - 1; li2 <= Math.floor(x1 / LC) + 1; li2++) {
+        const lm = TerrainCore.landmarkCell(li2, lj, TerrainSys.P);
+        if (!lm || !World.isDiscovered(g.world, Math.floor(lm.x), Math.floor(lm.y))) continue;
+        MapView.landmarkIcon(ctx, lm, tx(lm.x), ty(lm.y), opts.labels);
+      }
+    }
     // buildings
     for (const b of g.buildings.values()) {
       const r = b.type === 'bridge' ? Grid.rect(b) : b;

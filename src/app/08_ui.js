@@ -370,6 +370,7 @@ const UI = {
         html += '<br><span style="color:' + DATA.TIERS[gh.dep.tier].color + '">' + esc(R.name) + '</span> · ' + Fmt.num(rate) + '/s · ≈' + Fmt.num(rate * R.value) + ' ' + CURRENCY_SHORT + '/s';
       }
       html += gh.ok ? '' : '<br><span class="bad">' + esc(gh.reason || 'Ungültig') + '</span>';
+      if (gh.ok && gh.gap) html += '<br><span style="color:#ffc24d">Lücke lassen: Hier würdest du dich einmauern.</span>';
       if (gh.ok && App.touch) html += '<br><span class="good">Nochmal tippen oder ✓ zum Bauen</span>';
     } else if (gh.list) {
       html = (gh.count !== undefined ? gh.count + ' Objekte · ' : '') + Fmt.money(gh.cost) + (gh.reason ? '<br><span class="bad">' + esc(gh.reason) + '</span>' : '');
