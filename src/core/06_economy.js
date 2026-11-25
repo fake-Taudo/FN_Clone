@@ -429,8 +429,11 @@ const Customers = {
     const qr = CONFIG.customers[tier].qty;
     const total = U.randInt(qr[0], qr[1], rnd);
     const stock = Customers.stockKeys(g, b);
-    const stockList = [...stock.keys()];
-    const cand = Customers.candidateKeys(g);
+    const maxT = CONFIG.wishMaxTier[tier];
+    const inRange = k => DATA.RESOURCES[k >> 2].tier <= maxT;
+    const stockAll = [...stock.keys()];
+    const candAll = Customers.candidateKeys(g);
+    const stockIn = stockAll.filter(inRange), candIn = candAll.filter(inRange);
     const wishes = [];
     const weights = [];
     for (let i = 0; i < n; i++) weights.push(0.5 + rnd());
@@ -441,12 +444,15 @@ const Customers = {
       let w;
       if (i > 0 && r < 0.07) {
         // exploration wish: something rarer than anything owned so far
-        const maxOwned = Math.max(0, ...cand.map(k => DATA.RESOURCES[k >> 2].tier));
-        const t = Math.min(7, maxOwned + 1 + (rnd() < 0.3 ? 1 : 0));
+        const maxOwned = Math.max(0, ...candAll.map(k => DATA.RESOURCES[k >> 2].tier));
+        const t = Math.min(7, maxT + 1, maxOwned + 1 + (rnd() < 0.3 ? 1 : 0));
         w = { res: -1, tier: t, ref: 0, qty: Math.max(1, Math.round(qty * 0.3)), got: 0, explore: true };
       } else {
         let key;
-        if (stockList.length && r < 0.78) key = U.pick(stockList, rnd);
+        const lux = rnd() < CONFIG.luxuryChance;
+        const stockList = lux || !stockIn.length ? stockAll : stockIn;
+        const cand = lux || !candIn.length ? candAll : candIn;
+        if (stockList.length && r < 0.78 && (lux || stockIn.length)) key = U.pick(stockList, rnd);
         else {
           // weight refined products higher for better customers
           const ws = cand.map(k => 1 + (k & 3) * tier * 0.8);

@@ -19,6 +19,7 @@ const Frame = {
     Draw.tm = App.now / 1000;
     App.frame++;
     Render.updateParticles(dt);
+    Render.updateDevils(g, dt);
     Render.setWorldTransform(ctx);
     const vr = Render.visibleRect(2);
     const P = App.debug.prof;

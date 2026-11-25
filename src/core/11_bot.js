@@ -9,7 +9,7 @@ const Bot = {
   REF_TYPES: ['refinery1', 'refinery2', 'refinery3'],
   RESEARCH_PLAN: ['drill1', 'haggle1', 'traffic1', 'shelf1', 'belt2', 'ref2', 'silo2', 'patience', 'drill2', 'haggle2', 'service', 'traffic2', 'cooler', 'ref3', 'refSpeed', 'belt3', 'servo', 'marketing', 'drill3', 'silo3', 'haggle3', 'beltSpeed', 'contracts', 'belt4'],
 
-  HUMAN_DELAY: 20, // seconds a human needs per build decision (menus, aiming, checking)
+  HUMAN_DELAY: 30, // seconds a human needs per build decision (menus, aiming, checking)
   create(opts = {}) {
     const seed = opts.seed !== undefined ? opts.seed : 1234;
     const meta = opts.meta || Game.createMeta(seed);
@@ -91,12 +91,40 @@ const Bot = {
   },
   model(B) {
     const g = B.g;
-    let P = 0, V = 0, C = 0, CF = 0;
-    for (const L of B.lines) { P += L.rate; V += L.rate * L.val; }
-    for (const b of B.sellers) { const c = Bot.sellerCapOf(g, b.type, b.level, b); C += c; CF += c * CONFIG.customers[SELLER_TIER[b.type]].factor; }
-    return { P, V, C, F: C > 0 ? CF / C : 1 };
+    const lines = B.lines.map(L => ({ r: L.rate, v: L.val, t: DATA.RESOURCES[L.res].tier }));
+    const caps = [0, 0, 0, 0, 0, 0];
+    for (const b of B.sellers) caps[SELLER_TIER[b.type]] += Bot.sellerCapOf(g, b.type, b.level, b);
+    return { lines, caps };
   },
-  revenue(m) { return m.P <= 0 ? 0 : Math.min(1, m.C / m.P) * m.V * m.F; },
+  // Revenue estimate: sellers (best first) buy the most valuable items within their wish range.
+  revenue(m) {
+    const rem = m.lines.map(l => l.r);
+    const order = m.lines.map((l, i) => i).sort((a, b) => m.lines[b].v - m.lines[a].v);
+    let rev = 0;
+    for (let t = 5; t >= 0; t--) {
+      let cap = m.caps[t];
+      if (cap <= 0) continue;
+      const maxT = CONFIG.wishMaxTier[t];
+      for (const i of order) {
+        if (cap <= 0) break;
+        if (m.lines[i].t > maxT || rem[i] <= 0) continue;
+        const a = Math.min(cap, rem[i]);
+        rev += a * m.lines[i].v * CONFIG.customers[t].factor;
+        rem[i] -= a; cap -= a;
+      }
+      // a few luxury wishes buy anything
+      for (const i of order) {
+        if (cap <= 0) break;
+        if (rem[i] <= 0) continue;
+        const a = Math.min(cap * CONFIG.luxuryChance, rem[i]);
+        rev += a * m.lines[i].v * CONFIG.customers[t].factor; rem[i] -= a; cap -= a;
+      }
+    }
+    return rev;
+  },
+  withLine(m, r, v, t) { return { lines: m.lines.concat([{ r, v, t }]), caps: m.caps }; },
+  withLineRate(m, idx, r) { const lines = m.lines.slice(); lines[idx] = Object.assign({}, lines[idx], { r }); return { lines, caps: m.caps }; },
+  withCap(m, t, dc) { const caps = m.caps.slice(); caps[t] += dc; return { lines: m.lines, caps }; },
   refRate(g, k, level = 1) { return CONFIG.refineRate[k] * Math.pow(1.25, level - 1) * g.mods.refine; },
   lineRate(g, L) {
     let r = L.ex.rate;
@@ -169,7 +197,7 @@ const Bot = {
           let rate = Math.min(exRate, CONFIG.belt.throughput[0] * g.mods.beltSpeed), cost = baseCost;
           for (let j = 0; j < k; j++) { rate = Math.min(rate, Bot.refRate(g, j)); cost += Grid.cost(g, Bot.REF_TYPES[j]); }
           const val = DATA.RESOURCES[d.res].value * CONFIG.refineFactor[k];
-          const gain = Bot.revenue({ P: m.P + rate, V: m.V + rate * val, C: m.C, F: m.F }) - R0;
+          const gain = Bot.revenue(Bot.withLine(m, rate, val, d.tier)) - R0;
           if (gain > 0) lineCands.push({ d, k, cost, gain });
         }
       }
@@ -177,7 +205,7 @@ const Bot = {
       for (const lc of lineCands.slice(0, 3)) out.push({ cost: lc.cost, gain: lc.gain, ratio: lc.gain / lc.cost, act: () => Bot.buildLine(B, lc.d, lc.k), label: 'line' + lc.k });
     }
     // upgrade the bottleneck of a line
-    for (const L of B.lines) {
+    B.lines.forEach((L, li) => {
       const comps = [{ b: L.ex, r: L.ex.rate }].concat(L.refs.map(rf => ({ b: rf, r: rf.rate })));
       const grade = Math.min(...L.beltIds.map(id => (g.buildings.get(id) || { grade: 3 }).grade));
       const beltR = CONFIG.belt.throughput[grade] * g.mods.beltSpeed;
@@ -185,35 +213,44 @@ const Bot = {
       const lo = comps[0];
       if (beltR < lo.r * 0.999) {
         const next = DATA.BELT_GRADES[grade + 1];
-        if (!next || (next.research && !g.run.research.done.has(next.research))) continue;
+        if (!next || (next.research && !g.run.research.done.has(next.research))) return;
         const n = L.beltIds.length;
         const cost = n * (next.cost - DATA.BELT_GRADES[grade].cost * 0.5);
         const nr = Math.min(lo.r, CONFIG.belt.throughput[grade + 1] * g.mods.beltSpeed);
-        add(cost, { P: m.P - L.rate + nr, V: m.V + (nr - L.rate) * L.val, C: m.C, F: m.F }, () => Bot.upgradeBelts(B, L), 'belts');
-        continue;
+        add(cost, Bot.withLineRate(m, li, nr), () => Bot.upgradeBelts(B, L), 'belts');
+        return;
       }
-      if (Grid.upgradeBlock(g, lo.b)) continue;
+      if (Grid.upgradeBlock(g, lo.b)) return;
       const cost = Grid.upgradeCost(g, lo.b);
       const mult = lo.b.type === 'extractor' ? CONFIG.extractorLevelSpeed : 1.25;
       const second = comps.length > 1 ? comps[1].r : Infinity;
       const nr = Math.min(lo.r * mult, second, beltR);
-      add(cost, { P: m.P - L.rate + nr, V: m.V + (nr - L.rate) * L.val, C: m.C, F: m.F }, () => { Grid.upgrade(g, lo.b); g.topologyDirty = true; }, 'up-' + lo.b.type);
-    }
+      add(cost, Bot.withLineRate(m, li, nr), () => { Grid.upgrade(g, lo.b); g.topologyDirty = true; }, 'up-' + lo.b.type);
+    });
     // sellers
     if (B.silos.length) {
-      for (let t = Math.min(4, g.run.custTier); t >= Math.max(0, g.run.custTier - 2); t--) {
+      for (let t = Math.min(4, g.run.custTier); t >= Math.max(0, g.run.custTier - 3); t--) {
         const type = Bot.SELLERS[t];
         const n = g.run.counts[type] || 0, k = CONFIG.crowding[t] || 0;
         const base = Bot.sellerCapOf(g, type, 1, null);
         const c = (n + 1) * base / (1 + k * n) - (n > 0 ? n * base / (1 + k * (n - 1)) : 0);
-        const f = CONFIG.customers[t].factor;
-        const C2 = m.C + c;
-        add(Grid.cost(g, type), { P: m.P, V: m.V, C: C2, F: (m.F * m.C + f * c) / C2 }, () => Bot.addSeller(B, type), 'seller' + t);
+        add(Grid.cost(g, type), Bot.withCap(m, t, c), () => Bot.addSeller(B, type), 'seller' + t);
       }
       for (const s of B.sellers) {
         if (SELLER_TIER[s.type] === 5 || Grid.upgradeBlock(g, s)) continue;
-        const c0 = Bot.sellerCapOf(g, s.type, s.level, s), c1 = c0 * 1.1;
-        add(Grid.upgradeCost(g, s), { P: m.P, V: m.V, C: m.C + c1 - c0, F: m.F }, () => { Grid.upgrade(g, s); }, 'up-seller');
+        const c0 = Bot.sellerCapOf(g, s.type, s.level, s);
+        add(Grid.upgradeCost(g, s), Bot.withCap(m, SELLER_TIER[s.type], c0 * 0.1), () => { Grid.upgrade(g, s); }, 'up-seller');
+      }
+    }
+    // research: estimated relative revenue gain
+    if (B.lab && !g.run.research.active) {
+      const est = { haggle1: 0.08, haggle2: 0.12, haggle3: 0.18, traffic1: 0.1, traffic2: 0.12, ref2: 0.15, ref3: 0.15, refSpeed: 0.08, drill1: 0.04, drill2: 0.05, drill3: 0.06, service: 0.05, patience: 0.05, shelf1: 0.03, belt2: 0.04, belt3: 0.04, belt4: 0.03, beltSpeed: 0.03, marketing: 0.03, cooler: 0.03, servo: 0.03, silo2: 0.02, silo3: 0.02, contracts: 0.05 };
+      for (const id of Bot.RESEARCH_PLAN) {
+        const r = DATA.RESEARCH_BY_ID[id];
+        if (Progression.researchState(g, r) !== 'available') continue;
+        const cost = Progression.researchCost(g, r);
+        const gain = R0 * (est[id] || 0.02);
+        if (gain > 0) out.push({ cost, gain, ratio: gain / cost, act: () => Progression.startResearch(g, id), label: 'research' });
       }
     }
     return { out, m, R0 };
@@ -354,10 +391,11 @@ const Bot = {
       return !!B.lab;
     }
     if (g.run.research.active) return false;
+    // cheap research is always taken right away; expensive research competes in the candidate list
     for (const id of Bot.RESEARCH_PLAN) {
       const r = DATA.RESEARCH_BY_ID[id];
       if (Progression.researchState(g, r) !== 'available') continue;
-      if (Progression.researchCost(g, r) > g.run.money * 0.4) return false;
+      if (Progression.researchCost(g, r) > g.run.money * 0.25) return false;
       return !Progression.startResearch(g, id);
     }
     return false;
@@ -394,7 +432,7 @@ const Bot = {
     const income = Math.max(0.1, R0 * g.mods.sales);
     let pick = null;
     if (best.cost <= g.run.money) pick = best;
-    else if ((best.cost - g.run.money) / income > 300) pick = out.find(o => o.cost <= g.run.money);
+    else if ((best.cost - g.run.money) / income > 1800) pick = out.find(o => o.cost <= g.run.money && o.ratio >= best.ratio * 0.3);
     if (!pick) return;
     const r = pick.act();
     if (pick.label.startsWith('line') && !(r && r.ok)) return;
@@ -420,7 +458,8 @@ const Bot = {
         if (opts.trace && g.tick % (CONFIG.tickRate * 600) === 0) {
           const sellers = {}; for (const b of g.lists.seller) sellers[b.type] = (sellers[b.type] || 0) + 1;
           const m = Bot.model(B);
-          opts.trace(Fmt.time(g.run.time) + ' earned ' + Fmt.num(g.run.earned) + ' inc ' + Fmt.num(g.income) + '/s money ' + Fmt.num(g.run.money) + ' lines ' + B.lines.length + ' P ' + Fmt.num(m.P) + ' C ' + Fmt.num(m.C) + ' F ' + Fmt.num(m.F) + ' tier ' + (g.run.custTier + 1) + ' ' + JSON.stringify(sellers) + ' ref ' + (g.lists.refinery || []).length + ' res ' + g.run.research.done.size + ' b ' + g.buildings.size);
+          const P = m.lines.reduce((a, l) => a + l.r, 0), C = m.caps.reduce((a, c) => a + c, 0);
+          opts.trace(Fmt.time(g.run.time) + ' earned ' + Fmt.num(g.run.earned) + ' inc ' + Fmt.num(g.income) + '/s money ' + Fmt.num(g.run.money) + ' lines ' + B.lines.length + ' P ' + Fmt.num(P) + ' C ' + Fmt.num(C) + ' est ' + Fmt.num(Bot.revenue(m) * g.mods.sales) + ' tier ' + (g.run.custTier + 1) + ' ' + JSON.stringify(sellers) + ' ref ' + (g.lists.refinery || []).length + ' res ' + g.run.research.done.size + ' b ' + g.buildings.size);
         }
         yield { time: g.run.time, earned: g.run.earned };
       }

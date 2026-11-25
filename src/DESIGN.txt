@@ -1,2 +1,69 @@
+=====================================================================
 ARES OUTPOST - DESIGN-ENTSCHEIDUNGEN
-(wird am Ende mit den Balancing-Messwerten vervollständigt)
+=====================================================================
+Aufbau
+- Eine einzige index.html. Der Quelltext liegt zur Pflege in src/ (core = DOM-frei,
+  app = Browser) und wird mit tools/build.js zu dieser Datei zusammengefügt.
+  Die Simulation (src/core) läuft ohne DOM auch in Node (tools/core.js) für Tests
+  und den Balancing-Bot.
+- Feste Simulationsrate 20 Ticks/s (Accumulator), Rendering per rAF mit Interpolation.
+- Titel, Währung und Kurzform zentral: GAME_TITLE, CURRENCY_NAME, CURRENCY_SHORT.
+- Für Tests/Power-User gibt es window.__AO__ (nur Lesezugriff empfohlen).
+
+Welt
+- Landeplatz (16,16) = Mitte von Chunk 0/0. Vorkommen-Cluster bleiben innerhalb
+  ihres Chunks (Rand 1 Feld), damit Abfragen nur einen Chunk prüfen müssen.
+- Normale Vorkommen halten 30 Felder Abstand zum Landeplatz; der Glücksstart setzt
+  dort eigene, garantierte Vorkommen (immer mind. ein großes gewöhnliches).
+- Entdeckung (Fog of War) in 8x8-Zellen (16 Bit pro Chunk).
+- Gleicher Planet = gleiche Karte (Seed aus Basis-Seed + Planetenindex), damit die
+  Planetenwahl beim Rebirth "gezielte Vorkommen" erlaubt.
+- Zeichnen relativ zu einem Kamera-Ursprung, damit auch bei ±1.000.000 Feldern
+  keine Float-Ungenauigkeit sichtbar wird.
+
+Bauen & Logistik
+- Ports: Bänder nehmen von hinten und den Seiten an, geben vorne ab. Lager und
+  Raffinerien nehmen an allen Seiten an und geben am vorderen Mittelfeld (Pfeil) ab.
+  Extraktoren geben an alle Seiten (wählbar) an Bänder/Lager/Verarbeiter/Verkauf ab.
+- Banddurchsatz über Geschwindigkeit/Abstand: Basis 1,0 Felder/s bei 0,5 Abstand
+  = 2 Items/s (Verbessert 5, Hochleistung 12, Plasma 30).
+- Ladestation wirkt auf die gesamte angrenzende Bandstrecke (Engpass-Prinzip: ein
+  nur 3 Felder langer Bonus hätte keinen Effekt auf den Durchsatz).
+- Brücke = Start- und Zielfeld, dazwischen bis zu 4 freie Felder.
+- Verkaufsgebäude: Regal nimmt gewünschte Items an und darf bis zur Hälfte
+  vorab gefüllt werden; angrenzende Lager wirken als Verladerampe (+20 %
+  Abfertigung, Kunden kaufen direkt aus dem Lager).
+- Verschieben ganzer Auswahlen ist nicht rückgängig machbar (Einzel-Verschieben schon).
+
+Wirtschaft
+- Sättigung pro Einheit 0,004/(1+0,3*Rohstoffstufe), geteilt durch die typische
+  Besuchsgröße der Kundenstufe (sonst würde ein Frachterbesuch jeden Preis sofort
+  auf das Minimum drücken).
+- Kundenstufen wünschen nur Rohstoffe bis zu einer Stufe (Aliens: bis Ungewöhnlich,
+  Karawanen: bis Selten, Shuttles: bis Episch, Handelsschiffe: bis Legendär,
+  Frachter: bis Exotisch), mit 8 % Luxus-Wünschen darüber. Seltene Funde lohnen
+  sich dadurch erst mit besseren Kunden, ohne frühe Glücksfunde wertlos zu machen.
+- Mehr Verkaufsgebäude desselben Typs teilen sich die Kundschaft (abnehmender
+  Ertrag 15 %/12 %/10 %/8 %/6 % je weiterem Gebäude); Alien-Wege erhöhen den Zulauf.
+- Verkaufsgebäude-Kosten wie im Prompt (5 Tsd / 60 Tsd / 750 Tsd / 12 Mio / 200 Mio):
+  Frachterdock und Handelsterminal sind damit Ziele der späteren Planeten.
+- Offline: Erwartungswert-Modell in bis zu 480 Schritten über die echten
+  Förderketten (Engpass-Skalierung geteilter Bänder), Durchschnittspreis, keine Events.
+- Kunden-Trinkgeld (6 %): kleine Münze am Verkaufsgebäude, Einsammeln per Tippen,
+  Darüberlaufen oder Forschung "Auto-Sammeln".
+
+Progression
+- Rebirth-Multiplikator nach allen je erhaltenen Punkten; Ausgeben im Shop senkt ihn nicht.
+- "Startausrüstung" im Shop = Gratis-Bausatz (Extraktor, Basar, Bänder, später
+  Lager, Raffinerie, Labor) statt einer festen Blaupause.
+- Forschung braucht ein Labor; mehrere Labore bzw. Laborstufen beschleunigen.
+- Kodex: "entdeckt" = mindestens eine Einheit abgebaut, "gesichtet" = gesehen/gescannt.
+
+Bedienung
+- Touch: Joystick erscheint dort, wo der Daumen links unten aufsetzt; erstes Tippen
+  setzt die Bauvorschau, zweites Tippen (oder ✓) baut; Bänder per Wischgeste;
+  Bauleiste klappt nach der Auswahl ein. Long-Press auf Baukarten zeigt Details.
+- Desktop: siehe Einstellungen (Tastenbelegung).
+
+Balancing (greedy Bot, echte Simulation, Planet 1, Normalstart)
+- wird nach der finalen Abstimmung hier eingetragen

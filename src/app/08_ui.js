@@ -23,6 +23,8 @@ const UI = {
     $('#btn-redo').addEventListener('click', () => Build.redo());
     $('#btn-center').addEventListener('click', UI.centerCamera);
     $('#tier-badge').addEventListener('click', () => Menus.open('stats'));
+    $('#income').addEventListener('click', () => UI.salesPopover());
+    $('#income').title = 'Letzte Verkäufe anzeigen';
     $('#minimap').addEventListener('click', () => UI.openMap());
     $('#tool-demolish').addEventListener('click', () => { Build.setTool('demolish'); if (App.touch && window.innerWidth < 900 && App.tool === 'demolish') UI.collapseBuild(true); });
     $('#tool-select').addEventListener('click', () => Build.setTool('select'));
@@ -143,6 +145,21 @@ const UI = {
     el.firstElementChild.style.transform = 'rotate(' + (ang + Math.PI / 2) + 'rad)';
     el.lastElementChild.textContent = DATA.RESOURCES[t.res].name + ' · ' + Math.round(Math.hypot(t.x - p.x, t.y - p.y)) + ' m';
   },
+  salesPopover() {
+    const g = App.g;
+    const log = h('div', { class: 'sales-log' });
+    if (!g.run.salesLog.length) log.append(h('div', { class: 'muted', text: 'Noch keine Verkäufe in diesem Durchlauf.' }));
+    for (const e of g.run.salesLog) {
+      const row = h('div');
+      if (e.key >= 0) row.append(Sprites.itemCanvas(e.key >> 2, e.key & 3, 18));
+      row.append(h('span', { text: DATA.CUSTOMERS[e.tier].name + ' · ' + Fmt.int(e.units) + ' Items · vor ' + Fmt.time(g.run.time - e.t) + (e.ok ? ' · zufrieden' : '') }));
+      row.append(h('b', { text: '+' + Fmt.money(e.rev) }));
+      log.append(row);
+    }
+    UI.openModal(h('div', { class: 'modal small' },
+      h('div', { class: 'modal-head' }, h('h2', { text: 'Letzte Verkäufe · Ø ' + Fmt.money(g.income) + '/s' }), h('button', { class: 'icon-btn small', 'aria-label': 'Schließen', onclick: () => UI.closeModal() }, '✕')),
+      h('div', { class: 'modal-body' }, log)));
+  },
   updateCenterBtn() { $('#btn-center').classList.toggle('hidden', App.cam.follow); },
   centerCamera() { App.cam.follow = true; UI.updateCenterBtn(); },
 
@@ -230,6 +247,7 @@ const UI = {
       if (favIdx >= 0) card.append(h('span', { class: 'fav', text: '★' + (favIdx + 1) }));
       if (kit > 0) card.append(h('span', { class: 'kit', text: '×' + kit }));
       card.addEventListener('click', () => {
+        if (card._lp) { card._lp = false; return; }
         if (lock) { UI.toast(lock, 'bad'); Audio2.play('error'); $('#bb-hint').textContent = '🔒 ' + lock + '. ' + def.desc; return; }
         Audio2.play('click');
         Build.setTool({ type: it.type, grade: it.grade });
@@ -239,7 +257,7 @@ const UI = {
       });
       card.addEventListener('contextmenu', e => { e.preventDefault(); UI.toggleFavorite(it.type + ':' + it.grade); });
       let lp = null;
-      card.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') lp = setTimeout(() => { UI.toggleFavorite(it.type + ':' + it.grade); lp = null; }, 600); });
+      card.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') lp = setTimeout(() => { lp = null; card._lp = true; UI.cardInfo(it, card, lock); }, 550); });
       card.addEventListener('pointerup', () => { if (lp) clearTimeout(lp); });
       card.addEventListener('pointerleave', () => { if (lp) clearTimeout(lp); });
       card.addEventListener('mouseenter', () => { $('#bb-hint').textContent = (lock ? '🔒 ' + lock + '. ' : '') + def.desc + (it.type === 'belt' ? ' Durchsatz ' + CONFIG.belt.throughput[it.grade] + ' Items/s.' : ''); });
@@ -248,6 +266,23 @@ const UI = {
     $('#tool-select').classList.toggle('hidden', !g.run.research.done.has('massSelect'));
     $('#tool-demolish').classList.toggle('on', App.tool === 'demolish');
     $('#tool-select').classList.toggle('on', App.tool === 'select');
+  },
+  // Long-press popover for build cards on touch screens.
+  cardInfo(it, card, lock) {
+    const def = DATA.BUILDINGS[it.type];
+    const key = it.type + ':' + it.grade;
+    const fav = App.settings.favorites.includes(key);
+    const name = it.type === 'belt' ? DATA.BELT_GRADES[it.grade].name : def.name;
+    const m = h('div', { class: 'modal small' },
+      h('div', { class: 'modal-head' }, h('h2', { text: name }), h('button', { class: 'icon-btn small', 'aria-label': 'Schließen', onclick: () => UI.closeModal() }, '✕')),
+      h('div', { class: 'modal-body' },
+        Draw.thumb(it.type, 72, { grade: it.grade }),
+        h('p', { text: def.desc + (it.type === 'belt' ? ' Durchsatz ' + CONFIG.belt.throughput[it.grade] + ' Items/s.' : '') }),
+        h('p', { class: 'muted', text: 'Größe ' + def.w + '×' + def.h + (lock ? ' · ' + lock : '') })),
+      h('div', { class: 'modal-foot' },
+        h('button', { class: 'btn', onclick: () => { UI.toggleFavorite(key); UI.closeModal(); } }, fav ? '☆ Favorit entfernen' : '★ Als Favorit'),
+        lock ? null : h('button', { class: 'btn accent', onclick: () => { UI.closeModal(); card._lp = false; card.click(); } }, 'Auswählen')));
+    UI.openModal(m);
   },
   collapseBuild(on) {
     const bar = $('#buildbar');

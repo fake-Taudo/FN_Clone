@@ -1,7 +1,74 @@
 <!doctype html>
 <!--
+=====================================================================
 ARES OUTPOST - DESIGN-ENTSCHEIDUNGEN
-(wird am Ende mit den Balancing-Messwerten vervollständigt)
+=====================================================================
+Aufbau
+- Eine einzige index.html. Der Quelltext liegt zur Pflege in src/ (core = DOM-frei,
+  app = Browser) und wird mit tools/build.js zu dieser Datei zusammengefügt.
+  Die Simulation (src/core) läuft ohne DOM auch in Node (tools/core.js) für Tests
+  und den Balancing-Bot.
+- Feste Simulationsrate 20 Ticks/s (Accumulator), Rendering per rAF mit Interpolation.
+- Titel, Währung und Kurzform zentral: GAME_TITLE, CURRENCY_NAME, CURRENCY_SHORT.
+- Für Tests/Power-User gibt es window.__AO__ (nur Lesezugriff empfohlen).
+
+Welt
+- Landeplatz (16,16) = Mitte von Chunk 0/0. Vorkommen-Cluster bleiben innerhalb
+  ihres Chunks (Rand 1 Feld), damit Abfragen nur einen Chunk prüfen müssen.
+- Normale Vorkommen halten 30 Felder Abstand zum Landeplatz; der Glücksstart setzt
+  dort eigene, garantierte Vorkommen (immer mind. ein großes gewöhnliches).
+- Entdeckung (Fog of War) in 8x8-Zellen (16 Bit pro Chunk).
+- Gleicher Planet = gleiche Karte (Seed aus Basis-Seed + Planetenindex), damit die
+  Planetenwahl beim Rebirth "gezielte Vorkommen" erlaubt.
+- Zeichnen relativ zu einem Kamera-Ursprung, damit auch bei ±1.000.000 Feldern
+  keine Float-Ungenauigkeit sichtbar wird.
+
+Bauen & Logistik
+- Ports: Bänder nehmen von hinten und den Seiten an, geben vorne ab. Lager und
+  Raffinerien nehmen an allen Seiten an und geben am vorderen Mittelfeld (Pfeil) ab.
+  Extraktoren geben an alle Seiten (wählbar) an Bänder/Lager/Verarbeiter/Verkauf ab.
+- Banddurchsatz über Geschwindigkeit/Abstand: Basis 1,0 Felder/s bei 0,5 Abstand
+  = 2 Items/s (Verbessert 5, Hochleistung 12, Plasma 30).
+- Ladestation wirkt auf die gesamte angrenzende Bandstrecke (Engpass-Prinzip: ein
+  nur 3 Felder langer Bonus hätte keinen Effekt auf den Durchsatz).
+- Brücke = Start- und Zielfeld, dazwischen bis zu 4 freie Felder.
+- Verkaufsgebäude: Regal nimmt gewünschte Items an und darf bis zur Hälfte
+  vorab gefüllt werden; angrenzende Lager wirken als Verladerampe (+20 %
+  Abfertigung, Kunden kaufen direkt aus dem Lager).
+- Verschieben ganzer Auswahlen ist nicht rückgängig machbar (Einzel-Verschieben schon).
+
+Wirtschaft
+- Sättigung pro Einheit 0,004/(1+0,3*Rohstoffstufe), geteilt durch die typische
+  Besuchsgröße der Kundenstufe (sonst würde ein Frachterbesuch jeden Preis sofort
+  auf das Minimum drücken).
+- Kundenstufen wünschen nur Rohstoffe bis zu einer Stufe (Aliens: bis Ungewöhnlich,
+  Karawanen: bis Selten, Shuttles: bis Episch, Handelsschiffe: bis Legendär,
+  Frachter: bis Exotisch), mit 8 % Luxus-Wünschen darüber. Seltene Funde lohnen
+  sich dadurch erst mit besseren Kunden, ohne frühe Glücksfunde wertlos zu machen.
+- Mehr Verkaufsgebäude desselben Typs teilen sich die Kundschaft (abnehmender
+  Ertrag 15 %/12 %/10 %/8 %/6 % je weiterem Gebäude); Alien-Wege erhöhen den Zulauf.
+- Verkaufsgebäude-Kosten wie im Prompt (5 Tsd / 60 Tsd / 750 Tsd / 12 Mio / 200 Mio):
+  Frachterdock und Handelsterminal sind damit Ziele der späteren Planeten.
+- Offline: Erwartungswert-Modell in bis zu 480 Schritten über die echten
+  Förderketten (Engpass-Skalierung geteilter Bänder), Durchschnittspreis, keine Events.
+- Kunden-Trinkgeld (6 %): kleine Münze am Verkaufsgebäude, Einsammeln per Tippen,
+  Darüberlaufen oder Forschung "Auto-Sammeln".
+
+Progression
+- Rebirth-Multiplikator nach allen je erhaltenen Punkten; Ausgeben im Shop senkt ihn nicht.
+- "Startausrüstung" im Shop = Gratis-Bausatz (Extraktor, Basar, Bänder, später
+  Lager, Raffinerie, Labor) statt einer festen Blaupause.
+- Forschung braucht ein Labor; mehrere Labore bzw. Laborstufen beschleunigen.
+- Kodex: "entdeckt" = mindestens eine Einheit abgebaut, "gesichtet" = gesehen/gescannt.
+
+Bedienung
+- Touch: Joystick erscheint dort, wo der Daumen links unten aufsetzt; erstes Tippen
+  setzt die Bauvorschau, zweites Tippen (oder ✓) baut; Bänder per Wischgeste;
+  Bauleiste klappt nach der Auswahl ein. Long-Press auf Baukarten zeigt Details.
+- Desktop: siehe Einstellungen (Tastenbelegung).
+
+Balancing (greedy Bot, echte Simulation, Planet 1, Normalstart)
+- wird nach der finalen Abstimmung hier eingetragen
 
 -->
 <html lang="de">
@@ -99,6 +166,7 @@ input, textarea, select { font: inherit; user-select: text; -webkit-user-select:
 .logo-mark.big { width: 96px; height: 96px; }
 .logo-mark.big::after { left: -18px; right: -18px; height: 18px; border-width: 4px; }
 .money { font-size: 22px; font-weight: 800; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+#income { cursor: pointer; }
 .income-row { display: flex; gap: 8px; align-items: center; color: var(--good); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .save-dot { width: 8px; height: 8px; border-radius: 50%; background: #5a5a5a; transition: background 300ms; }
 .save-dot.saving { background: var(--warn); }
@@ -575,13 +643,15 @@ const CONFIG = {
   // ---- customers ----
   customers: [
     { interval: [8, 14],    factor: 1.0, qty: [3, 8],       unlock: 0 },
-    { interval: [30, 50],   factor: 1.5, qty: [12, 30],     unlock: 2000 },
-    { interval: [60, 90],   factor: 2.5, qty: [45, 110],    unlock: 25000 },
-    { interval: [120, 180], factor: 4.0, qty: [180, 420],   unlock: 120000 },
+    { interval: [30, 50],   factor: 1.5, qty: [10, 26],     unlock: 2000 },
+    { interval: [70, 100],  factor: 2.5, qty: [30, 80],     unlock: 25000 },
+    { interval: [120, 180], factor: 4.0, qty: [150, 360],   unlock: 120000 },
     { interval: [240, 360], factor: 8.0, qty: [700, 1700],  unlock: 400000 },
     { interval: [480, 720], factor: 20,  qty: [5000, 20000], unlock: 1000000 }
   ],
   patience: [20, 60],
+  wishMaxTier: [1, 2, 3, 4, 6, 7],   // highest resource tier a customer tier usually asks for
+  luxuryChance: 0.08,                // chance that a customer asks for something above its usual range
   crowding: [0.15, 0.12, 0.10, 0.08, 0.06], // arrival rate per seller / (1 + c * (sellers of that type - 1))
   satisfiedBonus: 0.10,
   pathBonusPerTile: 0.03, pathBonusMax: 0.6, pathRadius: 9,
@@ -1111,11 +1181,11 @@ DATA.BUILDINGS = {
     desc: 'Händler-Karawanen kaufen größere Mengen (Erlös ×1,5).' },
   shuttlepad: { name: 'Shuttle-Landepad', cat: 'sell', w: 5, h: 5, cost: 60000, color: '#e0609a', tier: 2,
     desc: 'Shuttles landen und kaufen in großen Mengen (Erlös ×2,5).' },
-  port: { name: 'Orbitalhafen', cat: 'sell', w: 7, h: 7, cost: 750000, color: '#d84fc0', tier: 3,
+  port: { name: 'Orbitalhafen', cat: 'sell', w: 7, h: 7, cost: 400000, color: '#d84fc0', tier: 3,
     desc: 'Kleine Handelsschiffe docken an (Erlös ×4).' },
-  dock: { name: 'Frachterdock', cat: 'sell', w: 9, h: 9, cost: 12000000, color: '#b44fe0', tier: 4,
+  dock: { name: 'Frachterdock', cat: 'sell', w: 9, h: 9, cost: 2500000, color: '#b44fe0', tier: 4,
     desc: 'Große Frachter kaufen riesige Mengen (Erlös ×8).' },
-  terminal: { name: 'Planeten-Handelsterminal', cat: 'sell', w: 7, h: 7, cost: 200000000, color: '#ff5fa8', tier: 5,
+  terminal: { name: 'Planeten-Handelsterminal', cat: 'sell', w: 7, h: 7, cost: 25000000, color: '#ff5fa8', tier: 5,
     desc: 'Planeten-Verträge mit Erlös ×20. Stabile Preise.' },
   path: { name: 'Alien-Weg', cat: 'deco', w: 1, h: 1, cost: 1, color: '#b9a27a', line: true, walkable: true,
     desc: 'Gepflasterter Weg. Lockt Alien-Wanderer zum Basar (+3 % Kunden je Feld in der Nähe).' },
@@ -1220,8 +1290,8 @@ DATA.RESEARCH = [
   { id: 'drill1', cat: 'Produktion', name: 'Bohrkopf-Optimierung I', cost: 600, time: 25, req: [], desc: 'Extraktoren +10 % Abbau.', x: 0, y: 3 },
   { id: 'drill2', cat: 'Produktion', name: 'Bohrkopf-Optimierung II', cost: 12000, time: 80, req: ['drill1'], desc: 'Extraktoren +15 % Abbau.', x: 1, y: 3 },
   { id: 'drill3', cat: 'Produktion', name: 'Bohrkopf-Optimierung III', cost: 180000, time: 200, req: ['drill2'], desc: 'Extraktoren +20 % Abbau.', x: 2, y: 3 },
-  { id: 'ref2', cat: 'Produktion', name: 'Raffinerie II', cost: 5000, time: 60, req: [], desc: 'Zweite Veredelungsstufe (×4).', x: 0, y: 4 },
-  { id: 'ref3', cat: 'Produktion', name: 'Raffinerie III', cost: 70000, time: 160, req: ['ref2'], desc: 'Dritte Veredelungsstufe (×8).', x: 1, y: 4 },
+  { id: 'ref2', cat: 'Produktion', name: 'Raffinerie II', cost: 8000, time: 60, req: [], desc: 'Zweite Veredelungsstufe (×4).', x: 0, y: 4 },
+  { id: 'ref3', cat: 'Produktion', name: 'Raffinerie III', cost: 120000, time: 160, req: ['ref2'], desc: 'Dritte Veredelungsstufe (×8).', x: 1, y: 4 },
   { id: 'refSpeed', cat: 'Produktion', name: 'Katalysatoren', cost: 20000, time: 90, req: ['ref2'], desc: 'Raffinerien +15 % Tempo.', x: 2, y: 4 },
   { id: 'cooler', cat: 'Produktion', name: 'Kühltürme', cost: 2500, time: 40, req: [], desc: 'Kühltürme beschleunigen benachbarte Raffinerien.', x: 0, y: 5 },
   { id: 'servo', cat: 'Produktion', name: 'Servo-Hubs', cost: 8000, time: 60, req: ['cooler'], desc: 'Servo-Hubs beschleunigen Extraktoren und Raffinerien.', x: 1, y: 5 },
@@ -1231,10 +1301,10 @@ DATA.RESEARCH = [
   // Handel
   { id: 'shelf1', cat: 'Handel', name: 'Größere Regale', cost: 1000, time: 30, req: [], desc: 'Regale aller Verkaufsgebäude +50 %.', x: 0, y: 6 },
   { id: 'patience', cat: 'Handel', name: 'Geduldige Kunden', cost: 2500, time: 40, req: ['shelf1'], desc: 'Kunden warten 30 % länger.', x: 1, y: 6 },
-  { id: 'traffic1', cat: 'Handel', name: 'Händlernetz', cost: 5000, time: 60, req: [], desc: 'Kunden kommen 15 % häufiger.', x: 0, y: 7 },
-  { id: 'traffic2', cat: 'Handel', name: 'Interstellare Werbung', cost: 60000, time: 140, req: ['traffic1'], desc: 'Kunden kommen weitere 20 % häufiger.', x: 1, y: 7 },
+  { id: 'traffic1', cat: 'Handel', name: 'Händlernetz', cost: 6000, time: 60, req: [], desc: 'Kunden kommen 15 % häufiger.', x: 0, y: 7 },
+  { id: 'traffic2', cat: 'Handel', name: 'Interstellare Werbung', cost: 90000, time: 140, req: ['traffic1'], desc: 'Kunden kommen weitere 20 % häufiger.', x: 1, y: 7 },
   { id: 'haggle1', cat: 'Handel', name: 'Verhandlungsgeschick I', cost: 1500, time: 35, req: [], desc: 'Verkaufserlös +8 %.', x: 0, y: 8 },
-  { id: 'haggle2', cat: 'Handel', name: 'Verhandlungsgeschick II', cost: 25000, time: 90, req: ['haggle1'], desc: 'Verkaufserlös +12 %.', x: 1, y: 8 },
+  { id: 'haggle2', cat: 'Handel', name: 'Verhandlungsgeschick II', cost: 40000, time: 90, req: ['haggle1'], desc: 'Verkaufserlös +12 %.', x: 1, y: 8 },
   { id: 'haggle3', cat: 'Handel', name: 'Verhandlungsgeschick III', cost: 300000, time: 220, req: ['haggle2'], desc: 'Verkaufserlös +18 %.', x: 2, y: 8 },
   { id: 'service', cat: 'Handel', name: 'Express-Abfertigung', cost: 15000, time: 70, req: ['patience'], desc: 'Verkaufsgebäude fertigen 40 % schneller ab.', x: 2, y: 6 },
   { id: 'contracts', cat: 'Handel', name: 'Vertragsbüro', cost: 400000, time: 240, req: ['haggle2'], desc: 'Ein zusätzlicher aktiver Planeten-Vertrag.', x: 3, y: 8 },
@@ -2765,8 +2835,11 @@ const Customers = {
     const qr = CONFIG.customers[tier].qty;
     const total = U.randInt(qr[0], qr[1], rnd);
     const stock = Customers.stockKeys(g, b);
-    const stockList = [...stock.keys()];
-    const cand = Customers.candidateKeys(g);
+    const maxT = CONFIG.wishMaxTier[tier];
+    const inRange = k => DATA.RESOURCES[k >> 2].tier <= maxT;
+    const stockAll = [...stock.keys()];
+    const candAll = Customers.candidateKeys(g);
+    const stockIn = stockAll.filter(inRange), candIn = candAll.filter(inRange);
     const wishes = [];
     const weights = [];
     for (let i = 0; i < n; i++) weights.push(0.5 + rnd());
@@ -2777,12 +2850,15 @@ const Customers = {
       let w;
       if (i > 0 && r < 0.07) {
         // exploration wish: something rarer than anything owned so far
-        const maxOwned = Math.max(0, ...cand.map(k => DATA.RESOURCES[k >> 2].tier));
-        const t = Math.min(7, maxOwned + 1 + (rnd() < 0.3 ? 1 : 0));
+        const maxOwned = Math.max(0, ...candAll.map(k => DATA.RESOURCES[k >> 2].tier));
+        const t = Math.min(7, maxT + 1, maxOwned + 1 + (rnd() < 0.3 ? 1 : 0));
         w = { res: -1, tier: t, ref: 0, qty: Math.max(1, Math.round(qty * 0.3)), got: 0, explore: true };
       } else {
         let key;
-        if (stockList.length && r < 0.78) key = U.pick(stockList, rnd);
+        const lux = rnd() < CONFIG.luxuryChance;
+        const stockList = lux || !stockIn.length ? stockAll : stockIn;
+        const cand = lux || !candIn.length ? candAll : candIn;
+        if (stockList.length && r < 0.78 && (lux || stockIn.length)) key = U.pick(stockList, rnd);
         else {
           // weight refined products higher for better customers
           const ws = cand.map(k => 1 + (k & 3) * tier * 0.8);
@@ -3823,7 +3899,7 @@ const Bot = {
   REF_TYPES: ['refinery1', 'refinery2', 'refinery3'],
   RESEARCH_PLAN: ['drill1', 'haggle1', 'traffic1', 'shelf1', 'belt2', 'ref2', 'silo2', 'patience', 'drill2', 'haggle2', 'service', 'traffic2', 'cooler', 'ref3', 'refSpeed', 'belt3', 'servo', 'marketing', 'drill3', 'silo3', 'haggle3', 'beltSpeed', 'contracts', 'belt4'],
 
-  HUMAN_DELAY: 20, // seconds a human needs per build decision (menus, aiming, checking)
+  HUMAN_DELAY: 30, // seconds a human needs per build decision (menus, aiming, checking)
   create(opts = {}) {
     const seed = opts.seed !== undefined ? opts.seed : 1234;
     const meta = opts.meta || Game.createMeta(seed);
@@ -3905,12 +3981,40 @@ const Bot = {
   },
   model(B) {
     const g = B.g;
-    let P = 0, V = 0, C = 0, CF = 0;
-    for (const L of B.lines) { P += L.rate; V += L.rate * L.val; }
-    for (const b of B.sellers) { const c = Bot.sellerCapOf(g, b.type, b.level, b); C += c; CF += c * CONFIG.customers[SELLER_TIER[b.type]].factor; }
-    return { P, V, C, F: C > 0 ? CF / C : 1 };
+    const lines = B.lines.map(L => ({ r: L.rate, v: L.val, t: DATA.RESOURCES[L.res].tier }));
+    const caps = [0, 0, 0, 0, 0, 0];
+    for (const b of B.sellers) caps[SELLER_TIER[b.type]] += Bot.sellerCapOf(g, b.type, b.level, b);
+    return { lines, caps };
   },
-  revenue(m) { return m.P <= 0 ? 0 : Math.min(1, m.C / m.P) * m.V * m.F; },
+  // Revenue estimate: sellers (best first) buy the most valuable items within their wish range.
+  revenue(m) {
+    const rem = m.lines.map(l => l.r);
+    const order = m.lines.map((l, i) => i).sort((a, b) => m.lines[b].v - m.lines[a].v);
+    let rev = 0;
+    for (let t = 5; t >= 0; t--) {
+      let cap = m.caps[t];
+      if (cap <= 0) continue;
+      const maxT = CONFIG.wishMaxTier[t];
+      for (const i of order) {
+        if (cap <= 0) break;
+        if (m.lines[i].t > maxT || rem[i] <= 0) continue;
+        const a = Math.min(cap, rem[i]);
+        rev += a * m.lines[i].v * CONFIG.customers[t].factor;
+        rem[i] -= a; cap -= a;
+      }
+      // a few luxury wishes buy anything
+      for (const i of order) {
+        if (cap <= 0) break;
+        if (rem[i] <= 0) continue;
+        const a = Math.min(cap * CONFIG.luxuryChance, rem[i]);
+        rev += a * m.lines[i].v * CONFIG.customers[t].factor; rem[i] -= a; cap -= a;
+      }
+    }
+    return rev;
+  },
+  withLine(m, r, v, t) { return { lines: m.lines.concat([{ r, v, t }]), caps: m.caps }; },
+  withLineRate(m, idx, r) { const lines = m.lines.slice(); lines[idx] = Object.assign({}, lines[idx], { r }); return { lines, caps: m.caps }; },
+  withCap(m, t, dc) { const caps = m.caps.slice(); caps[t] += dc; return { lines: m.lines, caps }; },
   refRate(g, k, level = 1) { return CONFIG.refineRate[k] * Math.pow(1.25, level - 1) * g.mods.refine; },
   lineRate(g, L) {
     let r = L.ex.rate;
@@ -3983,7 +4087,7 @@ const Bot = {
           let rate = Math.min(exRate, CONFIG.belt.throughput[0] * g.mods.beltSpeed), cost = baseCost;
           for (let j = 0; j < k; j++) { rate = Math.min(rate, Bot.refRate(g, j)); cost += Grid.cost(g, Bot.REF_TYPES[j]); }
           const val = DATA.RESOURCES[d.res].value * CONFIG.refineFactor[k];
-          const gain = Bot.revenue({ P: m.P + rate, V: m.V + rate * val, C: m.C, F: m.F }) - R0;
+          const gain = Bot.revenue(Bot.withLine(m, rate, val, d.tier)) - R0;
           if (gain > 0) lineCands.push({ d, k, cost, gain });
         }
       }
@@ -3991,7 +4095,7 @@ const Bot = {
       for (const lc of lineCands.slice(0, 3)) out.push({ cost: lc.cost, gain: lc.gain, ratio: lc.gain / lc.cost, act: () => Bot.buildLine(B, lc.d, lc.k), label: 'line' + lc.k });
     }
     // upgrade the bottleneck of a line
-    for (const L of B.lines) {
+    B.lines.forEach((L, li) => {
       const comps = [{ b: L.ex, r: L.ex.rate }].concat(L.refs.map(rf => ({ b: rf, r: rf.rate })));
       const grade = Math.min(...L.beltIds.map(id => (g.buildings.get(id) || { grade: 3 }).grade));
       const beltR = CONFIG.belt.throughput[grade] * g.mods.beltSpeed;
@@ -3999,35 +4103,44 @@ const Bot = {
       const lo = comps[0];
       if (beltR < lo.r * 0.999) {
         const next = DATA.BELT_GRADES[grade + 1];
-        if (!next || (next.research && !g.run.research.done.has(next.research))) continue;
+        if (!next || (next.research && !g.run.research.done.has(next.research))) return;
         const n = L.beltIds.length;
         const cost = n * (next.cost - DATA.BELT_GRADES[grade].cost * 0.5);
         const nr = Math.min(lo.r, CONFIG.belt.throughput[grade + 1] * g.mods.beltSpeed);
-        add(cost, { P: m.P - L.rate + nr, V: m.V + (nr - L.rate) * L.val, C: m.C, F: m.F }, () => Bot.upgradeBelts(B, L), 'belts');
-        continue;
+        add(cost, Bot.withLineRate(m, li, nr), () => Bot.upgradeBelts(B, L), 'belts');
+        return;
       }
-      if (Grid.upgradeBlock(g, lo.b)) continue;
+      if (Grid.upgradeBlock(g, lo.b)) return;
       const cost = Grid.upgradeCost(g, lo.b);
       const mult = lo.b.type === 'extractor' ? CONFIG.extractorLevelSpeed : 1.25;
       const second = comps.length > 1 ? comps[1].r : Infinity;
       const nr = Math.min(lo.r * mult, second, beltR);
-      add(cost, { P: m.P - L.rate + nr, V: m.V + (nr - L.rate) * L.val, C: m.C, F: m.F }, () => { Grid.upgrade(g, lo.b); g.topologyDirty = true; }, 'up-' + lo.b.type);
-    }
+      add(cost, Bot.withLineRate(m, li, nr), () => { Grid.upgrade(g, lo.b); g.topologyDirty = true; }, 'up-' + lo.b.type);
+    });
     // sellers
     if (B.silos.length) {
-      for (let t = Math.min(4, g.run.custTier); t >= Math.max(0, g.run.custTier - 2); t--) {
+      for (let t = Math.min(4, g.run.custTier); t >= Math.max(0, g.run.custTier - 3); t--) {
         const type = Bot.SELLERS[t];
         const n = g.run.counts[type] || 0, k = CONFIG.crowding[t] || 0;
         const base = Bot.sellerCapOf(g, type, 1, null);
         const c = (n + 1) * base / (1 + k * n) - (n > 0 ? n * base / (1 + k * (n - 1)) : 0);
-        const f = CONFIG.customers[t].factor;
-        const C2 = m.C + c;
-        add(Grid.cost(g, type), { P: m.P, V: m.V, C: C2, F: (m.F * m.C + f * c) / C2 }, () => Bot.addSeller(B, type), 'seller' + t);
+        add(Grid.cost(g, type), Bot.withCap(m, t, c), () => Bot.addSeller(B, type), 'seller' + t);
       }
       for (const s of B.sellers) {
         if (SELLER_TIER[s.type] === 5 || Grid.upgradeBlock(g, s)) continue;
-        const c0 = Bot.sellerCapOf(g, s.type, s.level, s), c1 = c0 * 1.1;
-        add(Grid.upgradeCost(g, s), { P: m.P, V: m.V, C: m.C + c1 - c0, F: m.F }, () => { Grid.upgrade(g, s); }, 'up-seller');
+        const c0 = Bot.sellerCapOf(g, s.type, s.level, s);
+        add(Grid.upgradeCost(g, s), Bot.withCap(m, SELLER_TIER[s.type], c0 * 0.1), () => { Grid.upgrade(g, s); }, 'up-seller');
+      }
+    }
+    // research: estimated relative revenue gain
+    if (B.lab && !g.run.research.active) {
+      const est = { haggle1: 0.08, haggle2: 0.12, haggle3: 0.18, traffic1: 0.1, traffic2: 0.12, ref2: 0.15, ref3: 0.15, refSpeed: 0.08, drill1: 0.04, drill2: 0.05, drill3: 0.06, service: 0.05, patience: 0.05, shelf1: 0.03, belt2: 0.04, belt3: 0.04, belt4: 0.03, beltSpeed: 0.03, marketing: 0.03, cooler: 0.03, servo: 0.03, silo2: 0.02, silo3: 0.02, contracts: 0.05 };
+      for (const id of Bot.RESEARCH_PLAN) {
+        const r = DATA.RESEARCH_BY_ID[id];
+        if (Progression.researchState(g, r) !== 'available') continue;
+        const cost = Progression.researchCost(g, r);
+        const gain = R0 * (est[id] || 0.02);
+        if (gain > 0) out.push({ cost, gain, ratio: gain / cost, act: () => Progression.startResearch(g, id), label: 'research' });
       }
     }
     return { out, m, R0 };
@@ -4168,10 +4281,11 @@ const Bot = {
       return !!B.lab;
     }
     if (g.run.research.active) return false;
+    // cheap research is always taken right away; expensive research competes in the candidate list
     for (const id of Bot.RESEARCH_PLAN) {
       const r = DATA.RESEARCH_BY_ID[id];
       if (Progression.researchState(g, r) !== 'available') continue;
-      if (Progression.researchCost(g, r) > g.run.money * 0.4) return false;
+      if (Progression.researchCost(g, r) > g.run.money * 0.25) return false;
       return !Progression.startResearch(g, id);
     }
     return false;
@@ -4208,7 +4322,7 @@ const Bot = {
     const income = Math.max(0.1, R0 * g.mods.sales);
     let pick = null;
     if (best.cost <= g.run.money) pick = best;
-    else if ((best.cost - g.run.money) / income > 300) pick = out.find(o => o.cost <= g.run.money);
+    else if ((best.cost - g.run.money) / income > 1800) pick = out.find(o => o.cost <= g.run.money && o.ratio >= best.ratio * 0.3);
     if (!pick) return;
     const r = pick.act();
     if (pick.label.startsWith('line') && !(r && r.ok)) return;
@@ -4234,7 +4348,8 @@ const Bot = {
         if (opts.trace && g.tick % (CONFIG.tickRate * 600) === 0) {
           const sellers = {}; for (const b of g.lists.seller) sellers[b.type] = (sellers[b.type] || 0) + 1;
           const m = Bot.model(B);
-          opts.trace(Fmt.time(g.run.time) + ' earned ' + Fmt.num(g.run.earned) + ' inc ' + Fmt.num(g.income) + '/s money ' + Fmt.num(g.run.money) + ' lines ' + B.lines.length + ' P ' + Fmt.num(m.P) + ' C ' + Fmt.num(m.C) + ' F ' + Fmt.num(m.F) + ' tier ' + (g.run.custTier + 1) + ' ' + JSON.stringify(sellers) + ' ref ' + (g.lists.refinery || []).length + ' res ' + g.run.research.done.size + ' b ' + g.buildings.size);
+          const P = m.lines.reduce((a, l) => a + l.r, 0), C = m.caps.reduce((a, c) => a + c, 0);
+          opts.trace(Fmt.time(g.run.time) + ' earned ' + Fmt.num(g.run.earned) + ' inc ' + Fmt.num(g.income) + '/s money ' + Fmt.num(g.run.money) + ' lines ' + B.lines.length + ' P ' + Fmt.num(P) + ' C ' + Fmt.num(C) + ' est ' + Fmt.num(Bot.revenue(m) * g.mods.sales) + ' tier ' + (g.run.custTier + 1) + ' ' + JSON.stringify(sellers) + ' ref ' + (g.lists.refinery || []).length + ' res ' + g.run.research.done.size + ' b ' + g.buildings.size);
         }
         yield { time: g.run.time, earned: g.run.earned };
       }
@@ -5067,6 +5182,24 @@ const Render = {
     const ph = ((g.run.time % cycle) / cycle) * Math.PI * 2;
     return U.clamp(-Math.cos(ph) * 0.9 - 0.1, 0, 1) * (Render.planetStyle === 8 ? 0.6 : 1);
   },
+  devils: [],
+  updateDevils(g, dt) {
+    if (App.settings.reducedFx || !App.settings.weather || App.quality === 'low') { Render.devils.length = 0; return; }
+    if (Render.devils.length < 2 && Math.random() < dt * 0.04) {
+      const p = g.run.player, a = Math.random() * Math.PI * 2, d = 8 + Math.random() * 10;
+      Render.devils.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, vx: (Math.random() - 0.5) * 1.5, vy: (Math.random() - 0.5) * 1.5, life: 8 + Math.random() * 6 });
+    }
+    for (let i = Render.devils.length - 1; i >= 0; i--) {
+      const dv = Render.devils[i];
+      dv.life -= dt; dv.x += dv.vx * dt; dv.y += dv.vy * dt;
+      if (dv.life <= 0) { Render.devils.splice(i, 1); continue; }
+      const k = Math.min(1, dv.life / 2, 1);
+      for (let j = 0; j < 2; j++) {
+        const ang = App.now / 120 + j * Math.PI + Math.random() * 0.5, r = 0.3 + Math.random() * 0.6;
+        Render.spawn('dust', dv.x + Math.cos(ang) * r, dv.y + Math.sin(ang) * r * 0.5 - Math.random() * 0.8, -Math.sin(ang) * 1.5 * k, Math.cos(ang) * 0.7 * k - 0.4, 0.9, Render.palette.particle, 0.07);
+      }
+    }
+  },
   drawAtmosphere(ctx, g, dt) {
     const d = App.view.dpr, W = App.view.w * d, H = App.view.h * d;
     const night = Render.dayNight(g);
@@ -5141,11 +5274,12 @@ const Draw = {
   },
   levelTag(ctx, b, x, y) {
     if (b.level <= 1 || App.cam.zoom < 20) return;
-    const s = 0.34;
+    const fs = Math.max(0.26, 12 / App.cam.zoom);
+    const s = fs * 1.3;
     ctx.fillStyle = 'rgba(0,0,0,.65)';
-    Render.roundRect(ctx, x + 0.08, y + b.h - s - 0.08, 0.3 + ROMAN[b.level].length * 0.17, s, 0.1); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = '700 0.26px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(ROMAN[b.level], x + 0.22, y + b.h - s / 2 - 0.08);
+    Render.roundRect(ctx, x + 0.08, y + b.h - s - 0.08, fs * 1.1 + ROMAN[b.level].length * fs * 0.65, s, 0.1); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = '700 ' + fs + 'px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(ROMAN[b.level], x + 0.08 + fs * 0.55, y + b.h - s / 2 - 0.08);
   },
   frontArrow(ctx, b, x, y) {
     const p = Grid.frontPort(b);
@@ -5551,7 +5685,7 @@ const Draw = {
       const p = 0.6 + 0.2 * Math.sin(tm * 2);
       ctx.fillStyle = Col.rgba('#ff5fa8', 0.25 * p); Render.roundRect(ctx, x + 1.5, y + 1.5, b.w - 3, 2.2, 0.2); ctx.fill();
       ctx.strokeStyle = Col.rgba('#ff9fd0', 0.8); ctx.lineWidth = 0.06; ctx.stroke();
-      ctx.fillStyle = '#ffd0ea'; ctx.font = '700 0.55px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffd0ea'; ctx.font = '700 ' + Math.max(0.55, 12 / App.cam.zoom) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(g.run.contracts.length + ' Verträge', x + b.w / 2, y + 2.6);
       for (let i = 0; i < 3; i++) { ctx.fillStyle = '#8a6aa8'; ctx.beginPath(); ctx.arc(x + 1.8 + i * 1.7, y + b.h - 1.4, 0.45, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = Col.rgba('#ff5fa8', 0.5 + 0.5 * Math.sin(tm * 3 + i)); ctx.beginPath(); ctx.arc(x + 1.8 + i * 1.7, y + b.h - 1.4, 0.15, 0, Math.PI * 2); ctx.fill(); }
     } else {
@@ -5611,8 +5745,18 @@ const Draw = {
       if (c.state === 'wait' && App.cam.zoom >= 16) Draw.bubble(ctx, rx, ry - (c.tier === 0 ? 1.1 : c.tier === 1 ? 1.2 : b.h / 2 + 0.6), c);
     }
   },
+  skinCache: null,
+  planetSkins() {
+    const P = Render.palette;
+    if (Draw.skinCache && Draw.skinCache.k === P.index) return Draw.skinCache.list;
+    const base = ['#7be07a', '#b07aff', '#4ad0d8', '#ff9a5a', '#e0d050', '#ff7ab0'];
+    const rot = P.index - 1;
+    const list = base.map((c, i) => Col.mix(base[(i + rot) % base.length], P.accent, 0.25 + (P.index % 3) * 0.08));
+    Draw.skinCache = { k: P.index, list };
+    return list;
+  },
   alien(ctx, x, y, c, tm, walking) {
-    const skins = ['#7be07a', '#b07aff', '#4ad0d8', '#ff9a5a', '#e0d050', '#ff7ab0'];
+    const skins = Draw.planetSkins();
     const col = skins[c.skin % skins.length];
     const bob = walking ? Math.abs(Math.sin(tm * 9 + c.skin)) * 0.08 : Math.sin(tm * 2 + c.skin) * 0.02;
     ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x, y + 0.05, 0.28, 0.1, 0, 0, Math.PI * 2); ctx.fill();
@@ -5680,18 +5824,19 @@ const Draw = {
   bubble(ctx, x, y, c) {
     const w = c.wishes.find(w2 => w2.got < w2.qty) || c.wishes[0];
     if (!w) return;
-    const s = 0.62;
+    const s = Math.max(0.62, 26 / App.cam.zoom);
+    const fs = Math.max(0.24, 12 / App.cam.zoom);
     ctx.fillStyle = 'rgba(255,255,255,.95)';
     Render.roundRect(ctx, x - s, y - s * 0.6, s * 2, s * 1.2, 0.18); ctx.fill();
     ctx.beginPath(); ctx.moveTo(x - 0.1, y + s * 0.6); ctx.lineTo(x, y + s * 0.6 + 0.18); ctx.lineTo(x + 0.1, y + s * 0.6); ctx.fill();
-    if (w.res >= 0) Draw.item(ctx, w.res, w.ref, x - s * 0.45, y, 0.2);
-    else { ctx.fillStyle = DATA.TIERS[w.tier].color; ctx.beginPath(); ctx.arc(x - s * 0.45, y, 0.16, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#222'; ctx.font = '700 0.22px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', x - s * 0.45, y + 0.01); }
-    ctx.fillStyle = '#222'; ctx.font = '700 0.24px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(Fmt.num(w.qty - w.got), x - s * 0.15, y - 0.08);
+    if (w.res >= 0) Draw.item(ctx, w.res, w.ref, x - s * 0.45, y, s * 0.32);
+    else { ctx.fillStyle = DATA.TIERS[w.tier].color; ctx.beginPath(); ctx.arc(x - s * 0.45, y, s * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#222'; ctx.font = '700 ' + fs + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', x - s * 0.45, y + 0.01); }
+    ctx.fillStyle = '#222'; ctx.font = '700 ' + fs + 'px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(Fmt.num(w.qty - w.got), x - s * 0.15, y - s * 0.13);
     // patience bar
     const pf = U.clamp(1 - c.t / c.patience, 0, 1);
-    ctx.fillStyle = '#ddd'; ctx.fillRect(x - s * 0.15, y + 0.12, s * 1.0, 0.08);
-    ctx.fillStyle = pf > 0.35 ? '#3ab54a' : '#e04a3a'; ctx.fillRect(x - s * 0.15, y + 0.12, s * 1.0 * pf, 0.08);
+    ctx.fillStyle = '#ddd'; ctx.fillRect(x - s * 0.15, y + s * 0.2, s * 1.0, s * 0.13);
+    ctx.fillStyle = pf > 0.35 ? '#3ab54a' : '#e04a3a'; ctx.fillRect(x - s * 0.15, y + s * 0.2, s * 1.0 * pf, s * 0.13);
     if (c.buying > 0) { ctx.fillStyle = '#ffd24a'; ctx.beginPath(); ctx.arc(x + s * 0.8, y - s * 0.45, 0.1, 0, Math.PI * 2); ctx.fill(); }
   },
 
@@ -5798,6 +5943,7 @@ const Frame = {
     Draw.tm = App.now / 1000;
     App.frame++;
     Render.updateParticles(dt);
+    Render.updateDevils(g, dt);
     Render.setWorldTransform(ctx);
     const vr = Render.visibleRect(2);
     const P = App.debug.prof;
@@ -6805,6 +6951,8 @@ const UI = {
     $('#btn-redo').addEventListener('click', () => Build.redo());
     $('#btn-center').addEventListener('click', UI.centerCamera);
     $('#tier-badge').addEventListener('click', () => Menus.open('stats'));
+    $('#income').addEventListener('click', () => UI.salesPopover());
+    $('#income').title = 'Letzte Verkäufe anzeigen';
     $('#minimap').addEventListener('click', () => UI.openMap());
     $('#tool-demolish').addEventListener('click', () => { Build.setTool('demolish'); if (App.touch && window.innerWidth < 900 && App.tool === 'demolish') UI.collapseBuild(true); });
     $('#tool-select').addEventListener('click', () => Build.setTool('select'));
@@ -6925,6 +7073,21 @@ const UI = {
     el.firstElementChild.style.transform = 'rotate(' + (ang + Math.PI / 2) + 'rad)';
     el.lastElementChild.textContent = DATA.RESOURCES[t.res].name + ' · ' + Math.round(Math.hypot(t.x - p.x, t.y - p.y)) + ' m';
   },
+  salesPopover() {
+    const g = App.g;
+    const log = h('div', { class: 'sales-log' });
+    if (!g.run.salesLog.length) log.append(h('div', { class: 'muted', text: 'Noch keine Verkäufe in diesem Durchlauf.' }));
+    for (const e of g.run.salesLog) {
+      const row = h('div');
+      if (e.key >= 0) row.append(Sprites.itemCanvas(e.key >> 2, e.key & 3, 18));
+      row.append(h('span', { text: DATA.CUSTOMERS[e.tier].name + ' · ' + Fmt.int(e.units) + ' Items · vor ' + Fmt.time(g.run.time - e.t) + (e.ok ? ' · zufrieden' : '') }));
+      row.append(h('b', { text: '+' + Fmt.money(e.rev) }));
+      log.append(row);
+    }
+    UI.openModal(h('div', { class: 'modal small' },
+      h('div', { class: 'modal-head' }, h('h2', { text: 'Letzte Verkäufe · Ø ' + Fmt.money(g.income) + '/s' }), h('button', { class: 'icon-btn small', 'aria-label': 'Schließen', onclick: () => UI.closeModal() }, '✕')),
+      h('div', { class: 'modal-body' }, log)));
+  },
   updateCenterBtn() { $('#btn-center').classList.toggle('hidden', App.cam.follow); },
   centerCamera() { App.cam.follow = true; UI.updateCenterBtn(); },
 
@@ -7012,6 +7175,7 @@ const UI = {
       if (favIdx >= 0) card.append(h('span', { class: 'fav', text: '★' + (favIdx + 1) }));
       if (kit > 0) card.append(h('span', { class: 'kit', text: '×' + kit }));
       card.addEventListener('click', () => {
+        if (card._lp) { card._lp = false; return; }
         if (lock) { UI.toast(lock, 'bad'); Audio2.play('error'); $('#bb-hint').textContent = '🔒 ' + lock + '. ' + def.desc; return; }
         Audio2.play('click');
         Build.setTool({ type: it.type, grade: it.grade });
@@ -7021,7 +7185,7 @@ const UI = {
       });
       card.addEventListener('contextmenu', e => { e.preventDefault(); UI.toggleFavorite(it.type + ':' + it.grade); });
       let lp = null;
-      card.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') lp = setTimeout(() => { UI.toggleFavorite(it.type + ':' + it.grade); lp = null; }, 600); });
+      card.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') lp = setTimeout(() => { lp = null; card._lp = true; UI.cardInfo(it, card, lock); }, 550); });
       card.addEventListener('pointerup', () => { if (lp) clearTimeout(lp); });
       card.addEventListener('pointerleave', () => { if (lp) clearTimeout(lp); });
       card.addEventListener('mouseenter', () => { $('#bb-hint').textContent = (lock ? '🔒 ' + lock + '. ' : '') + def.desc + (it.type === 'belt' ? ' Durchsatz ' + CONFIG.belt.throughput[it.grade] + ' Items/s.' : ''); });
@@ -7030,6 +7194,23 @@ const UI = {
     $('#tool-select').classList.toggle('hidden', !g.run.research.done.has('massSelect'));
     $('#tool-demolish').classList.toggle('on', App.tool === 'demolish');
     $('#tool-select').classList.toggle('on', App.tool === 'select');
+  },
+  // Long-press popover for build cards on touch screens.
+  cardInfo(it, card, lock) {
+    const def = DATA.BUILDINGS[it.type];
+    const key = it.type + ':' + it.grade;
+    const fav = App.settings.favorites.includes(key);
+    const name = it.type === 'belt' ? DATA.BELT_GRADES[it.grade].name : def.name;
+    const m = h('div', { class: 'modal small' },
+      h('div', { class: 'modal-head' }, h('h2', { text: name }), h('button', { class: 'icon-btn small', 'aria-label': 'Schließen', onclick: () => UI.closeModal() }, '✕')),
+      h('div', { class: 'modal-body' },
+        Draw.thumb(it.type, 72, { grade: it.grade }),
+        h('p', { text: def.desc + (it.type === 'belt' ? ' Durchsatz ' + CONFIG.belt.throughput[it.grade] + ' Items/s.' : '') }),
+        h('p', { class: 'muted', text: 'Größe ' + def.w + '×' + def.h + (lock ? ' · ' + lock : '') })),
+      h('div', { class: 'modal-foot' },
+        h('button', { class: 'btn', onclick: () => { UI.toggleFavorite(key); UI.closeModal(); } }, fav ? '☆ Favorit entfernen' : '★ Als Favorit'),
+        lock ? null : h('button', { class: 'btn accent', onclick: () => { UI.closeModal(); card._lp = false; card.click(); } }, 'Auswählen')));
+    UI.openModal(m);
   },
   collapseBuild(on) {
     const bar = $('#buildbar');

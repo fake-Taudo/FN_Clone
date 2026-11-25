@@ -23,11 +23,12 @@ const Draw = {
   },
   levelTag(ctx, b, x, y) {
     if (b.level <= 1 || App.cam.zoom < 20) return;
-    const s = 0.34;
+    const fs = Math.max(0.26, 12 / App.cam.zoom);
+    const s = fs * 1.3;
     ctx.fillStyle = 'rgba(0,0,0,.65)';
-    Render.roundRect(ctx, x + 0.08, y + b.h - s - 0.08, 0.3 + ROMAN[b.level].length * 0.17, s, 0.1); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = '700 0.26px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(ROMAN[b.level], x + 0.22, y + b.h - s / 2 - 0.08);
+    Render.roundRect(ctx, x + 0.08, y + b.h - s - 0.08, fs * 1.1 + ROMAN[b.level].length * fs * 0.65, s, 0.1); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = '700 ' + fs + 'px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(ROMAN[b.level], x + 0.08 + fs * 0.55, y + b.h - s / 2 - 0.08);
   },
   frontArrow(ctx, b, x, y) {
     const p = Grid.frontPort(b);
@@ -433,7 +434,7 @@ const Draw = {
       const p = 0.6 + 0.2 * Math.sin(tm * 2);
       ctx.fillStyle = Col.rgba('#ff5fa8', 0.25 * p); Render.roundRect(ctx, x + 1.5, y + 1.5, b.w - 3, 2.2, 0.2); ctx.fill();
       ctx.strokeStyle = Col.rgba('#ff9fd0', 0.8); ctx.lineWidth = 0.06; ctx.stroke();
-      ctx.fillStyle = '#ffd0ea'; ctx.font = '700 0.55px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#ffd0ea'; ctx.font = '700 ' + Math.max(0.55, 12 / App.cam.zoom) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(g.run.contracts.length + ' Verträge', x + b.w / 2, y + 2.6);
       for (let i = 0; i < 3; i++) { ctx.fillStyle = '#8a6aa8'; ctx.beginPath(); ctx.arc(x + 1.8 + i * 1.7, y + b.h - 1.4, 0.45, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = Col.rgba('#ff5fa8', 0.5 + 0.5 * Math.sin(tm * 3 + i)); ctx.beginPath(); ctx.arc(x + 1.8 + i * 1.7, y + b.h - 1.4, 0.15, 0, Math.PI * 2); ctx.fill(); }
     } else {
@@ -493,8 +494,18 @@ const Draw = {
       if (c.state === 'wait' && App.cam.zoom >= 16) Draw.bubble(ctx, rx, ry - (c.tier === 0 ? 1.1 : c.tier === 1 ? 1.2 : b.h / 2 + 0.6), c);
     }
   },
+  skinCache: null,
+  planetSkins() {
+    const P = Render.palette;
+    if (Draw.skinCache && Draw.skinCache.k === P.index) return Draw.skinCache.list;
+    const base = ['#7be07a', '#b07aff', '#4ad0d8', '#ff9a5a', '#e0d050', '#ff7ab0'];
+    const rot = P.index - 1;
+    const list = base.map((c, i) => Col.mix(base[(i + rot) % base.length], P.accent, 0.25 + (P.index % 3) * 0.08));
+    Draw.skinCache = { k: P.index, list };
+    return list;
+  },
   alien(ctx, x, y, c, tm, walking) {
-    const skins = ['#7be07a', '#b07aff', '#4ad0d8', '#ff9a5a', '#e0d050', '#ff7ab0'];
+    const skins = Draw.planetSkins();
     const col = skins[c.skin % skins.length];
     const bob = walking ? Math.abs(Math.sin(tm * 9 + c.skin)) * 0.08 : Math.sin(tm * 2 + c.skin) * 0.02;
     ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(x, y + 0.05, 0.28, 0.1, 0, 0, Math.PI * 2); ctx.fill();
@@ -562,18 +573,19 @@ const Draw = {
   bubble(ctx, x, y, c) {
     const w = c.wishes.find(w2 => w2.got < w2.qty) || c.wishes[0];
     if (!w) return;
-    const s = 0.62;
+    const s = Math.max(0.62, 26 / App.cam.zoom);
+    const fs = Math.max(0.24, 12 / App.cam.zoom);
     ctx.fillStyle = 'rgba(255,255,255,.95)';
     Render.roundRect(ctx, x - s, y - s * 0.6, s * 2, s * 1.2, 0.18); ctx.fill();
     ctx.beginPath(); ctx.moveTo(x - 0.1, y + s * 0.6); ctx.lineTo(x, y + s * 0.6 + 0.18); ctx.lineTo(x + 0.1, y + s * 0.6); ctx.fill();
-    if (w.res >= 0) Draw.item(ctx, w.res, w.ref, x - s * 0.45, y, 0.2);
-    else { ctx.fillStyle = DATA.TIERS[w.tier].color; ctx.beginPath(); ctx.arc(x - s * 0.45, y, 0.16, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#222'; ctx.font = '700 0.22px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', x - s * 0.45, y + 0.01); }
-    ctx.fillStyle = '#222'; ctx.font = '700 0.24px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(Fmt.num(w.qty - w.got), x - s * 0.15, y - 0.08);
+    if (w.res >= 0) Draw.item(ctx, w.res, w.ref, x - s * 0.45, y, s * 0.32);
+    else { ctx.fillStyle = DATA.TIERS[w.tier].color; ctx.beginPath(); ctx.arc(x - s * 0.45, y, s * 0.26, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#222'; ctx.font = '700 ' + fs + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', x - s * 0.45, y + 0.01); }
+    ctx.fillStyle = '#222'; ctx.font = '700 ' + fs + 'px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(Fmt.num(w.qty - w.got), x - s * 0.15, y - s * 0.13);
     // patience bar
     const pf = U.clamp(1 - c.t / c.patience, 0, 1);
-    ctx.fillStyle = '#ddd'; ctx.fillRect(x - s * 0.15, y + 0.12, s * 1.0, 0.08);
-    ctx.fillStyle = pf > 0.35 ? '#3ab54a' : '#e04a3a'; ctx.fillRect(x - s * 0.15, y + 0.12, s * 1.0 * pf, 0.08);
+    ctx.fillStyle = '#ddd'; ctx.fillRect(x - s * 0.15, y + s * 0.2, s * 1.0, s * 0.13);
+    ctx.fillStyle = pf > 0.35 ? '#3ab54a' : '#e04a3a'; ctx.fillRect(x - s * 0.15, y + s * 0.2, s * 1.0 * pf, s * 0.13);
     if (c.buying > 0) { ctx.fillStyle = '#ffd24a'; ctx.beginPath(); ctx.arc(x + s * 0.8, y - s * 0.45, 0.1, 0, Math.PI * 2); ctx.fill(); }
   },
 

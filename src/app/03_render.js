@@ -342,6 +342,24 @@ const Render = {
     const ph = ((g.run.time % cycle) / cycle) * Math.PI * 2;
     return U.clamp(-Math.cos(ph) * 0.9 - 0.1, 0, 1) * (Render.planetStyle === 8 ? 0.6 : 1);
   },
+  devils: [],
+  updateDevils(g, dt) {
+    if (App.settings.reducedFx || !App.settings.weather || App.quality === 'low') { Render.devils.length = 0; return; }
+    if (Render.devils.length < 2 && Math.random() < dt * 0.04) {
+      const p = g.run.player, a = Math.random() * Math.PI * 2, d = 8 + Math.random() * 10;
+      Render.devils.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, vx: (Math.random() - 0.5) * 1.5, vy: (Math.random() - 0.5) * 1.5, life: 8 + Math.random() * 6 });
+    }
+    for (let i = Render.devils.length - 1; i >= 0; i--) {
+      const dv = Render.devils[i];
+      dv.life -= dt; dv.x += dv.vx * dt; dv.y += dv.vy * dt;
+      if (dv.life <= 0) { Render.devils.splice(i, 1); continue; }
+      const k = Math.min(1, dv.life / 2, 1);
+      for (let j = 0; j < 2; j++) {
+        const ang = App.now / 120 + j * Math.PI + Math.random() * 0.5, r = 0.3 + Math.random() * 0.6;
+        Render.spawn('dust', dv.x + Math.cos(ang) * r, dv.y + Math.sin(ang) * r * 0.5 - Math.random() * 0.8, -Math.sin(ang) * 1.5 * k, Math.cos(ang) * 0.7 * k - 0.4, 0.9, Render.palette.particle, 0.07);
+      }
+    }
+  },
   drawAtmosphere(ctx, g, dt) {
     const d = App.view.dpr, W = App.view.w * d, H = App.view.h * d;
     const night = Render.dayNight(g);
