@@ -95,6 +95,96 @@ const Draw = {
     ctx.restore();
     if (b.boost > 1 && z >= 14) { ctx.fillStyle = 'rgba(155,240,106,.18)'; ctx.fillRect(x, y, 1, 1); }
   },
+  // Draws many belts with a handful of canvas calls (batched by colour).
+  beltsBatch(ctx, g, list) {
+    if (!list.length) return;
+    const z = App.cam.zoom;
+    const ox = Render.ox, oy = Render.oy;
+    if (z < 13) {
+      ctx.fillStyle = '#2b2f36'; ctx.beginPath();
+      for (const b of list) ctx.rect(b.x - ox, b.y - oy + 0.12, 1, 0.76);
+      ctx.fill();
+      for (let gr = 0; gr < 4; gr++) {
+        ctx.fillStyle = GRADE_COLORS[gr]; ctx.beginPath();
+        for (const b of list) if (b.grade === gr) { if (b.rot & 1) ctx.rect(b.x - ox + 0.42, b.y - oy, 0.16, 1); else ctx.rect(b.x - ox, b.y - oy + 0.42, 1, 0.16); }
+        ctx.fill();
+      }
+      return;
+    }
+    // base
+    ctx.fillStyle = '#2b2f36'; ctx.beginPath();
+    for (const b of list) {
+      const x = b.x - ox, y = b.y - oy;
+      const shape = Draw.beltShape(g, b);
+      if (shape === 0) { if (b.rot & 1) ctx.rect(x + 0.1, y, 0.8, 1); else ctx.rect(x, y + 0.1, 1, 0.8); continue; }
+      const c = Draw.curveGeom(b, shape, x, y);
+      ctx.moveTo(c.cx + Math.cos(c.a0) * 0.92, c.cy + Math.sin(c.a0) * 0.92);
+      ctx.arc(c.cx, c.cy, 0.92, c.a0, c.a1, c.ccw);
+      ctx.arc(c.cx, c.cy, 0.08, c.a1, c.a0, !c.ccw);
+      ctx.closePath();
+    }
+    ctx.fill();
+    // rails and chevrons per grade
+    const off = App.settings.reducedFx ? 0 : (Draw.tm % 1000);
+    for (let gr = 0; gr < 4; gr++) {
+      ctx.fillStyle = GRADE_COLORS[gr]; ctx.strokeStyle = GRADE_COLORS[gr]; ctx.lineWidth = 0.09;
+      ctx.beginPath();
+      let curves = false;
+      for (const b of list) {
+        if (b.grade !== gr) continue;
+        const x = b.x - ox, y = b.y - oy;
+        if (b.shape === 0) { if (b.rot & 1) { ctx.rect(x + 0.08, y, 0.09, 1); ctx.rect(x + 0.83, y, 0.09, 1); } else { ctx.rect(x, y + 0.08, 1, 0.09); ctx.rect(x, y + 0.83, 1, 0.09); } }
+        else curves = true;
+      }
+      ctx.fill();
+      if (curves) {
+        ctx.beginPath();
+        for (const b of list) {
+          if (b.grade !== gr || b.shape === 0) continue;
+          const c = Draw.curveGeom(b, b.shape, b.x - ox, b.y - oy);
+          ctx.moveTo(c.cx + Math.cos(c.a0) * 0.875, c.cy + Math.sin(c.a0) * 0.875); ctx.arc(c.cx, c.cy, 0.875, c.a0, c.a1, c.ccw);
+          ctx.moveTo(c.cx + Math.cos(c.a0) * 0.125, c.cy + Math.sin(c.a0) * 0.125); ctx.arc(c.cx, c.cy, 0.125, c.a0, c.a1, c.ccw);
+        }
+        ctx.stroke();
+      }
+      if (z < 14) continue;
+      ctx.strokeStyle = gr === 3 ? 'rgba(255,120,230,.75)' : 'rgba(255,255,255,.22)'; ctx.lineWidth = 0.07;
+      ctx.beginPath();
+      for (const b of list) {
+        if (b.grade !== gr || b.shape !== 0) continue;
+        const sp = (off * CONFIG.belt.speed[gr] * (b.boost || 1)) % 0.5;
+        const dx = U.DX[b.rot], dy = U.DY[b.rot], px = -dy, py = dx;
+        const cx0 = b.x - ox + 0.5, cy0 = b.y - oy + 0.5;
+        for (let i = -1; i < 2; i++) {
+          const t = -0.5 + sp + i * 0.5;
+          if (t < -0.55 || t > 0.45) continue;
+          const mx = cx0 + dx * t, my = cy0 + dy * t;
+          ctx.moveTo(mx - dx * 0.08 + px * 0.2, my - dy * 0.08 + py * 0.2);
+          ctx.lineTo(mx + dx * 0.08, my + dy * 0.08);
+          ctx.lineTo(mx - dx * 0.08 - px * 0.2, my - dy * 0.08 - py * 0.2);
+        }
+      }
+      ctx.stroke();
+    }
+    // charger boost tint
+    ctx.fillStyle = 'rgba(155,240,106,.18)'; ctx.beginPath();
+    let any = false;
+    for (const b of list) if (b.boost > 1) { ctx.rect(b.x - ox, b.y - oy, 1, 1); any = true; }
+    if (any) ctx.fill();
+  },
+  // Quarter-ring geometry for a curved belt in world-relative coordinates.
+  curveGeom(b, shape, x, y) {
+    // local frame: belt moves along +x; feed from -y (shape 1) or +y (shape 2); arc centred at (0.5, -0.5*sgn)
+    const sgn = shape === 1 ? 1 : -1;
+    const lx = 0.5, ly = -0.5 * sgn;
+    const r = b.rot;
+    const rotP = (px, py) => { for (let i = 0; i < r; i++) { const t = px; px = -py; py = t; } return [px, py]; };
+    const [cxl, cyl] = rotP(lx, ly);
+    const base = r * Math.PI / 2;
+    // in local frame the arc spans angles PI/2 .. PI (shape 1) or -PI/2 .. -PI (shape 2)
+    const a0 = (shape === 1 ? Math.PI : -Math.PI) + base, a1 = (shape === 1 ? Math.PI / 2 : -Math.PI / 2) + base;
+    return { cx: x + 0.5 + cxl, cy: y + 0.5 + cyl, a0, a1, ccw: shape === 1 };
+  },
   itemPos(b, it, alpha) {
     const p = it.pp + (it.p - it.pp) * alpha;
     const cx = b.x + 0.5, cy = b.y + 0.5;

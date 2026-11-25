@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-25T12:52:57.030Z",
+  "updated": "2026-11-25T13:12:23.587Z",
   "currentPhase": 10,
   "phases": [
     {
@@ -60,7 +60,7 @@
       "id": 10,
       "name": "Balancing & Härtung",
       "detail": "Balancing-Simulation, Performance, Selbsttests, Mobile-Test",
-      "status": "active"
+      "status": "done"
     }
   ],
   "log": [
@@ -99,6 +99,10 @@
     {
       "time": "2026-11-25T12:52:57.030Z",
       "text": "Phasen 5–9 fertig: Wirtschaft, Kunden 1–6, Nachfrage und Events, Forschung, Rebirth mit Planeten und Shop, Offline-Einnahmen, Speichern/Export, UI, Audio, Effekte. Jetzt: finale Balancing-Bestätigung."
+    },
+    {
+      "time": "2026-11-25T13:12:23.587Z",
+      "text": "Phase 10 fertig: Balancing per Bot (Median: Kundenstufe 2 nach 16 min, Stufe 4 nach 1:29 h, Rebirth nach 3:46 h), 11/11 Selbsttests grün, Browser-Tests Desktop/Handy hoch/quer ohne Fehler. Das Spiel ist fertig."
     }
   ]
 }

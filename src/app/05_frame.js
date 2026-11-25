@@ -48,7 +48,11 @@ const Frame = {
     }
     mark('collect');
     // layer 1: flat things (paths, belts)
-    for (const b of vis) if (b.type === 'path' || b.type === 'belt') Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
+    for (const b of vis) if (b.type === 'path') Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
+    const belts = Frame.belts || (Frame.belts = []);
+    belts.length = 0;
+    for (const b of vis) if (b.type === 'belt') belts.push(b);
+    Draw.beltsBatch(ctx, g, belts);
     // items on belts and nodes
     const zoomS = App.cam.zoom;
     const isz = 0.21;

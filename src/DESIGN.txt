@@ -73,4 +73,24 @@ Bedienung
 - Desktop: siehe Einstellungen (Tastenbelegung).
 
 Balancing (greedy Bot, echte Simulation, Planet 1, Normalstart)
-- wird nach der finalen Abstimmung hier eingetragen
+- Der Bot (Debug-Menü "Balancing-Report", Bot in src/core/11_bot.js) spielt das echte
+  Spiel: erkundet und scannt, baut Extraktor-Linien mit BFS-Bandrouting und
+  Raffinerieketten, Lager-Hub mit Verkaufsgebäuden, forscht, rüstet auf und kauft
+  jeweils die Aktion mit dem besten Umsatzgewinn pro Kosten. Menschliche
+  Reaktionszeit: 30 s pro Entscheidung plus Laufwege.
+- Finale Messung, 6 Karten (Seeds 1/2/3/6/7/8), Median (Spanne):
+    Erster Verkauf        0:20      (0:17–0:30)     Ziel < 3 min
+    Erste Raffinerie      16 min    (12–31 min)     Ziel 10–15 min
+    Kundenstufe 2         16 min    (13–26 min)     Ziel 15–25 min
+    Kundenstufe 4         1:29 h    (1:17–1:38 h)   Ziel 1,5–2 h
+    Rebirth möglich       3:46 h    (2:28–5:39 h)   Ziel 3–4 h
+  Kontrolle mit 20 Ticks/s: Seed 2 Stufe 2 19 min, Stufe 4 1:28 h, Rebirth 2:30 h;
+  Seed 3 Stufe 2 21 min, Stufe 4 1:31 h, Rebirth 2:23 h.
+  Die Spanne entsteht durch das Kartenglück (wie weit seltene Vorkommen liegen).
+- Planet 2 (nach einem Rebirth mit 1 Punkt, Shop: Verkaufserlös 1): Kundenstufe 4
+  nach 1:16 h (Planet 1: 1:38 h), Schwelle 20 Mio nach 2:49 h. Die Schwelle wächst
+  ×20 pro Planet, Dock und Terminal tragen das Wachstum auf späteren Planeten.
+- Offline-Modell gegen echte Simulation (30 min, Basis mit 1.880 Gebäuden):
+  1,12 Mio offline gegenüber 1,28 Mio online (87 %). 8 h Offline-Rechnung mit
+  2.000 Gebäuden: rund 30 ms.
+- Seltenheitsprüfung: 100.000 Vorkommen, maximale Abweichung 2,8 % (Grenze 10 %).
