@@ -51,13 +51,19 @@ const Debug = {
     el.textContent = 'FPS ' + App.debug.fps.toFixed(0) + ' · Frame ' + App.debug.frameMs.toFixed(1) + ' ms · Sim ' + (App.debug.simMs || 0).toFixed(2) + ' ms · Gebäude ' + g.buildings.size + ' · Items ' + items + ' · Partikel ' + Render.particles.length + ' · Chunks ' + Render.chunks.size + ' · Qualität ' + App.quality + ' · Tick ' + g.tick;
   },
   balance(out) {
-    out.textContent = 'Simulation läuft … (greedy Bot, Planet 1)';
-    const it = Bot.runIter({ maxHours: 6 });
+    out.textContent = 'Simulation läuft … (greedy Bot, Planet 1). Das Spiel pausiert währenddessen.';
+    // the report runs at 10 ticks/s for speed; the live game is paused meanwhile
+    const prevRate = CONFIG.tickRate;
+    App.running = false;
+    CONFIG.tickRate = 10;
+    const it = Bot.runIter({ maxHours: 6, seed: RNG.newSeed() % 100000 });
+    const finish = () => { CONFIG.tickRate = prevRate; App.running = true; MainLoop.last = 0; };
     const step = () => {
       const t0 = performance.now();
       let r;
       while (performance.now() - t0 < 40) { r = it.next(); if (r.done) break; }
-      if (r && r.done) { out.textContent = Bot.format(r.value); return; }
+      if (r && r.done) { finish(); out.textContent = Bot.format(r.value); return; }
+      if (!Debug.el) { finish(); return; }
       if (r && r.value) out.textContent = 'Simulation läuft … ' + Fmt.duration(r.value.time) + ' Spielzeit, ' + Fmt.money(r.value.earned);
       setTimeout(step, 0);
     };

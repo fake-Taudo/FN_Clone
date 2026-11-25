@@ -1,6 +1,6 @@
 {
-  "updated": "2026-11-25T12:34:08.358Z",
-  "currentPhase": 4,
+  "updated": "2026-11-25T12:52:57.030Z",
+  "currentPhase": 10,
   "phases": [
     {
       "id": 1,
@@ -30,37 +30,37 @@
       "id": 5,
       "name": "Wirtschaft & Verkauf",
       "detail": "Raffinerien, Boni, Verkaufsgebäude, Kunden 1–6, Wunschlisten, Preise, Events",
-      "status": "active"
+      "status": "done"
     },
     {
       "id": 6,
       "name": "Progression",
       "detail": "Forschung, Rebirth, Planeten, Rebirth-Shop, Erfolge",
-      "status": "active"
+      "status": "done"
     },
     {
       "id": 7,
       "name": "Offline & Speichern",
       "detail": "Offline-Berechnung, Willkommen-zurück, Save/Load/Export/Import/Migration",
-      "status": "active"
+      "status": "done"
     },
     {
       "id": 8,
       "name": "UI-Politur",
       "detail": "HUD, Menüs, Tutorial, Tooltips, Warnsymbole, Einstellungen, Audio",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 9,
       "name": "Effekte & Optik",
       "detail": "Animationen, Partikel, Planeten-Looks, Rebirth-Sequenz, Qualitätsstufen",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 10,
       "name": "Balancing & Härtung",
       "detail": "Balancing-Simulation, Performance, Selbsttests, Mobile-Test",
-      "status": "open"
+      "status": "active"
     }
   ],
   "log": [
@@ -95,6 +95,10 @@
     {
       "time": "2026-11-25T12:34:08.358Z",
       "text": "Balancing-Runde: Bot erreicht Kundenstufe 2 nach 11–18 min, Stufe 4 nach ~1,5 h, Rebirth im Median nach ~3,7 h. Jetzt Planet 2 und Optik-Feinschliff."
+    },
+    {
+      "time": "2026-11-25T12:52:57.030Z",
+      "text": "Phasen 5–9 fertig: Wirtschaft, Kunden 1–6, Nachfrage und Events, Forschung, Rebirth mit Planeten und Shop, Offline-Einnahmen, Speichern/Export, UI, Audio, Effekte. Jetzt: finale Balancing-Bestätigung."
     }
   ]
 }

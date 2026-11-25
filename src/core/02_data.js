@@ -198,7 +198,7 @@ DATA.BUILDINGS = {
     desc: 'Händler-Karawanen kaufen größere Mengen (Erlös ×1,5).' },
   shuttlepad: { name: 'Shuttle-Landepad', cat: 'sell', w: 5, h: 5, cost: 60000, color: '#e0609a', tier: 2,
     desc: 'Shuttles landen und kaufen in großen Mengen (Erlös ×2,5).' },
-  port: { name: 'Orbitalhafen', cat: 'sell', w: 7, h: 7, cost: 400000, color: '#d84fc0', tier: 3,
+  port: { name: 'Orbitalhafen', cat: 'sell', w: 7, h: 7, cost: 300000, color: '#d84fc0', tier: 3,
     desc: 'Kleine Handelsschiffe docken an (Erlös ×4).' },
   dock: { name: 'Frachterdock', cat: 'sell', w: 9, h: 9, cost: 2500000, color: '#b44fe0', tier: 4,
     desc: 'Große Frachter kaufen riesige Mengen (Erlös ×8).' },

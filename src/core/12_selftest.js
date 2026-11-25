@@ -42,14 +42,14 @@ const SelfTest = {
     });
     test('Glücksstart immer spielbar', () => {
       const luck = [0, 0, 0, 0];
-      for (let s = 1; s <= 600; s++) {
+      for (let s = 1; s <= 2000; s++) {
         const w = World.create(s * 7919, 1);
         luck[w.start.luck]++;
         if (!w.start.deposits.some(d => d.tier === 0)) return { ok: false, info: 'Seed ' + s + ' ohne gewöhnliches Vorkommen' };
         const L = CONFIG.landing;
         if (!w.start.deposits.every(d => Math.hypot(d.x - L.x, d.y - L.y) <= CONFIG.startRadius)) return { ok: false, info: 'Vorkommen außerhalb des Startradius' };
       }
-      return { ok: true, info: 'Verteilung ' + luck.map(c => (c / 6).toFixed(0) + ' %').join(' / ') };
+      return { ok: true, info: 'Normal/Gut/Jackpot/Wunder: ' + luck.map(c => (c / 20).toFixed(1) + ' %').join(' / ') + ' (Ziel 70/20/8/2)' };
     });
     let g;
     test('Bauen, Logistik und Verkauf', () => {

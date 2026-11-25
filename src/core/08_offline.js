@@ -106,6 +106,8 @@ const Offline = {
 
     const sell = (b, key, amt) => {
       const cap = sellCap.get(b.id) || 0;
+      // customers mostly ask for resources within their range (see CONFIG.wishMaxTier)
+      if (DATA.RESOURCES[key >> 2].tier > CONFIG.wishMaxTier[SELLER_TIER[b.type]]) amt *= CONFIG.luxuryChance;
       const take = Math.min(cap, amt);
       if (take <= 0) return 0;
       sellCap.set(b.id, cap - take);

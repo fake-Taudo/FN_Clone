@@ -84,7 +84,7 @@ const Bot = {
     const t = SELLER_TIER[type];
     if (t === 5) return 0;
     const c = CONFIG.customers[t];
-    const am = b ? Economy.arrivalMult(g, b) : g.mods.arrival * Math.pow(1.1, level - 1);
+    const am = b ? Economy.arrivalMult(g, b) : g.mods.arrival * Math.pow(CONFIG.sellerLevelArrival, level - 1);
     const iv = (c.interval[0] + c.interval[1]) / 2 / am;
     const svc = CONFIG.serviceRate[t] * Math.pow(1.3, level - 1) * g.mods.service * 1.2;
     return Math.min(svc, (c.qty[0] + c.qty[1]) / 2 / iv) * 0.9;
@@ -239,9 +239,23 @@ const Bot = {
       for (const s of B.sellers) {
         if (SELLER_TIER[s.type] === 5 || Grid.upgradeBlock(g, s)) continue;
         const c0 = Bot.sellerCapOf(g, s.type, s.level, s);
-        add(Grid.upgradeCost(g, s), Bot.withCap(m, SELLER_TIER[s.type], c0 * 0.1), () => { Grid.upgrade(g, s); }, 'up-seller');
+        add(Grid.upgradeCost(g, s), Bot.withCap(m, SELLER_TIER[s.type], c0 * (CONFIG.sellerLevelArrival - 1)), () => { Grid.upgrade(g, s); }, 'up-seller');
       }
     }
+    // rebuild a raw (or less refined) line with the best available refinery chain
+    const maxK = Bot.maxRefine(g);
+    B.lines.forEach((L, li) => {
+      if (L.refs.length >= maxK || !B.silos.length) return;
+      const k = maxK;
+      let rate = L.ex.rate;
+      for (let j = 0; j < k; j++) rate = Math.min(rate, Bot.refRate(g, j));
+      rate = Math.min(rate, CONFIG.belt.throughput[0] * g.mods.beltSpeed);
+      let cost = Grid.cost(g, 'extractor', { tier: L.ex.tier }) + Bot.beltCost(g, L.beltIds.length + 6, 0);
+      for (let j = 0; j < k; j++) cost += Grid.cost(g, Bot.REF_TYPES[j]);
+      const lines = m.lines.slice();
+      lines[li] = Object.assign({}, lines[li], { r: rate, v: DATA.RESOURCES[L.res].value * CONFIG.refineFactor[k] });
+      add(cost, { lines, caps: m.caps }, () => Bot.rebuildLine(B, L, k), 'rebuild' + k);
+    });
     // research: estimated relative revenue gain
     if (B.lab && !g.run.research.active) {
       const est = { haggle1: 0.08, haggle2: 0.12, haggle3: 0.18, traffic1: 0.1, traffic2: 0.12, ref2: 0.15, ref3: 0.15, refSpeed: 0.08, drill1: 0.04, drill2: 0.05, drill3: 0.06, service: 0.05, patience: 0.05, shelf1: 0.03, belt2: 0.04, belt3: 0.04, belt4: 0.03, beltSpeed: 0.03, marketing: 0.03, cooler: 0.03, servo: 0.03, silo2: 0.02, silo3: 0.02, contracts: 0.05 };
@@ -329,6 +343,19 @@ const Bot = {
     }
     B.badDeps.add(d.id);
     return null;
+  },
+  rebuildLine(B, L, k) {
+    const g = B.g;
+    const d = World.depositById(g.world, L.ex.dep);
+    if (!d) return null;
+    const parts = [L.ex].concat(L.refs, L.beltIds.map(id => g.buildings.get(id)).filter(Boolean));
+    for (const b of parts) if (g.buildings.has(b.id)) Grid.remove(g, b);
+    B.lines.splice(B.lines.indexOf(L), 1);
+    g.topologyDirty = true; Game.recompute(g);
+    let r = Bot.buildLine(B, d, k);
+    if (!(r && r.ok)) r = Bot.buildLine(B, d, 0);
+    B.badDeps.delete(d.id);
+    return r;
   },
   upgradeBelts(B, L) {
     const g = B.g;

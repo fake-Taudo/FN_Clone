@@ -237,7 +237,7 @@ const InfoPanel = {
     const sel = h('select', { class: 'sel' });
     sel.append(h('option', { value: '' }, 'Alles'));
     for (let t = 0; t < 8; t++) sel.append(h('option', { value: 'tier:' + t }, 'Stufe: ' + DATA.TIERS[t].name));
-    for (let r = 1; r < 4; r++) sel.append(h('option', { value: 'ref:' + r }, 'Veredelung: ' + DATA.REFINE_NAMES[r]));
+    for (let r = 0; r < 4; r++) sel.append(h('option', { value: 'ref:' + r }, 'Veredelung: ' + DATA.REFINE_NAMES[r]));
     const known = [...new Set([...g.run.produced].map(k => k >> 2))].sort((a, c) => a - c);
     for (const r of known) sel.append(h('option', { value: 'res:' + r }, 'Rohstoff: ' + DATA.RESOURCES[r].name));
     const f = b[prop];
@@ -261,7 +261,7 @@ const InfoPanel = {
     if (b.type === 'belt') return CONFIG.belt.throughput[b.grade] + ' → ' + CONFIG.belt.throughput[Math.min(3, b.grade + 1)] + ' Items/s';
     if (b.type === 'silo') return Fmt.int(Economy.siloCap(g, b)) + ' → ' + Fmt.int(Economy.siloCap(g, b) * CONFIG.siloLevelCapacity) + ' Plätze';
     if (REFINERY_LEVEL[b.type]) return Fmt.num(b.rate) + ' → ' + Fmt.num(b.rate * 1.25) + ' /s';
-    if (SELLER_TIER[b.type] !== undefined) return 'Regal ×1,5 · Abfertigung ×1,3 · Kunden +10 %';
+    if (SELLER_TIER[b.type] !== undefined) return 'Regal ×1,5 · Abfertigung ×1,3 · Kunden +' + Math.round((CONFIG.sellerLevelArrival - 1) * 100) + ' %';
     if (b.type === 'lab') return 'Forschung ×1,3';
     if (BOOSTER[b.type]) return 'Bonus +20 %';
     return 'Neue Optik';

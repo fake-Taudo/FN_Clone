@@ -642,9 +642,9 @@ const CONFIG = {
 
   // ---- customers ----
   customers: [
-    { interval: [8, 14],    factor: 1.0, qty: [3, 8],       unlock: 0 },
-    { interval: [30, 50],   factor: 1.5, qty: [10, 26],     unlock: 2000 },
-    { interval: [70, 100],  factor: 2.5, qty: [30, 80],     unlock: 25000 },
+    { interval: [10, 17],   factor: 1.0, qty: [3, 8],       unlock: 0 },
+    { interval: [36, 58],   factor: 1.5, qty: [10, 26],     unlock: 2000 },
+    { interval: [80, 115],  factor: 2.5, qty: [30, 80],     unlock: 25000 },
     { interval: [120, 180], factor: 4.0, qty: [150, 360],   unlock: 120000 },
     { interval: [240, 360], factor: 8.0, qty: [700, 1700],  unlock: 400000 },
     { interval: [480, 720], factor: 20,  qty: [5000, 20000], unlock: 1000000 }
@@ -652,7 +652,8 @@ const CONFIG = {
   patience: [20, 60],
   wishMaxTier: [1, 2, 3, 4, 6, 7],   // highest resource tier a customer tier usually asks for
   luxuryChance: 0.08,                // chance that a customer asks for something above its usual range
-  crowding: [0.15, 0.12, 0.10, 0.08, 0.06], // arrival rate per seller / (1 + c * (sellers of that type - 1))
+  crowding: [0.15, 0.12, 0.10, 0.08, 0.06],
+  sellerLevelArrival: 1.2,           // customer arrival multiplier per seller level // arrival rate per seller / (1 + c * (sellers of that type - 1))
   satisfiedBonus: 0.10,
   pathBonusPerTile: 0.03, pathBonusMax: 0.6, pathRadius: 9,
   contractSlots: 3, contractDuration: 25 * 60,
@@ -1181,7 +1182,7 @@ DATA.BUILDINGS = {
     desc: 'Händler-Karawanen kaufen größere Mengen (Erlös ×1,5).' },
   shuttlepad: { name: 'Shuttle-Landepad', cat: 'sell', w: 5, h: 5, cost: 60000, color: '#e0609a', tier: 2,
     desc: 'Shuttles landen und kaufen in großen Mengen (Erlös ×2,5).' },
-  port: { name: 'Orbitalhafen', cat: 'sell', w: 7, h: 7, cost: 400000, color: '#d84fc0', tier: 3,
+  port: { name: 'Orbitalhafen', cat: 'sell', w: 7, h: 7, cost: 300000, color: '#d84fc0', tier: 3,
     desc: 'Kleine Handelsschiffe docken an (Erlös ×4).' },
   dock: { name: 'Frachterdock', cat: 'sell', w: 9, h: 9, cost: 2500000, color: '#b44fe0', tier: 4,
     desc: 'Große Frachter kaufen riesige Mengen (Erlös ×8).' },
@@ -2429,7 +2430,7 @@ const Economy = {
   arrivalMult(g, b) {
     const t = SELLER_TIER[b.type];
     const same = (g.run.counts[b.type] || 1) - 1;
-    let m = g.mods.arrival * Math.pow(1.1, b.level - 1) / (1 + (CONFIG.crowding[t] || 0) * Math.max(0, same));
+    let m = g.mods.arrival * Math.pow(CONFIG.sellerLevelArrival, b.level - 1) / (1 + (CONFIG.crowding[t] || 0) * Math.max(0, same));
     if (b.type === 'bazaar') m *= 1 + Math.min(CONFIG.pathBonusMax, b.pathTiles * CONFIG.pathBonusPerTile);
     return m;
   },
@@ -3230,6 +3231,8 @@ const Offline = {
 
     const sell = (b, key, amt) => {
       const cap = sellCap.get(b.id) || 0;
+      // customers mostly ask for resources within their range (see CONFIG.wishMaxTier)
+      if (DATA.RESOURCES[key >> 2].tier > CONFIG.wishMaxTier[SELLER_TIER[b.type]]) amt *= CONFIG.luxuryChance;
       const take = Math.min(cap, amt);
       if (take <= 0) return 0;
       sellCap.set(b.id, cap - take);
@@ -3974,7 +3977,7 @@ const Bot = {
     const t = SELLER_TIER[type];
     if (t === 5) return 0;
     const c = CONFIG.customers[t];
-    const am = b ? Economy.arrivalMult(g, b) : g.mods.arrival * Math.pow(1.1, level - 1);
+    const am = b ? Economy.arrivalMult(g, b) : g.mods.arrival * Math.pow(CONFIG.sellerLevelArrival, level - 1);
     const iv = (c.interval[0] + c.interval[1]) / 2 / am;
     const svc = CONFIG.serviceRate[t] * Math.pow(1.3, level - 1) * g.mods.service * 1.2;
     return Math.min(svc, (c.qty[0] + c.qty[1]) / 2 / iv) * 0.9;
@@ -4129,9 +4132,23 @@ const Bot = {
       for (const s of B.sellers) {
         if (SELLER_TIER[s.type] === 5 || Grid.upgradeBlock(g, s)) continue;
         const c0 = Bot.sellerCapOf(g, s.type, s.level, s);
-        add(Grid.upgradeCost(g, s), Bot.withCap(m, SELLER_TIER[s.type], c0 * 0.1), () => { Grid.upgrade(g, s); }, 'up-seller');
+        add(Grid.upgradeCost(g, s), Bot.withCap(m, SELLER_TIER[s.type], c0 * (CONFIG.sellerLevelArrival - 1)), () => { Grid.upgrade(g, s); }, 'up-seller');
       }
     }
+    // rebuild a raw (or less refined) line with the best available refinery chain
+    const maxK = Bot.maxRefine(g);
+    B.lines.forEach((L, li) => {
+      if (L.refs.length >= maxK || !B.silos.length) return;
+      const k = maxK;
+      let rate = L.ex.rate;
+      for (let j = 0; j < k; j++) rate = Math.min(rate, Bot.refRate(g, j));
+      rate = Math.min(rate, CONFIG.belt.throughput[0] * g.mods.beltSpeed);
+      let cost = Grid.cost(g, 'extractor', { tier: L.ex.tier }) + Bot.beltCost(g, L.beltIds.length + 6, 0);
+      for (let j = 0; j < k; j++) cost += Grid.cost(g, Bot.REF_TYPES[j]);
+      const lines = m.lines.slice();
+      lines[li] = Object.assign({}, lines[li], { r: rate, v: DATA.RESOURCES[L.res].value * CONFIG.refineFactor[k] });
+      add(cost, { lines, caps: m.caps }, () => Bot.rebuildLine(B, L, k), 'rebuild' + k);
+    });
     // research: estimated relative revenue gain
     if (B.lab && !g.run.research.active) {
       const est = { haggle1: 0.08, haggle2: 0.12, haggle3: 0.18, traffic1: 0.1, traffic2: 0.12, ref2: 0.15, ref3: 0.15, refSpeed: 0.08, drill1: 0.04, drill2: 0.05, drill3: 0.06, service: 0.05, patience: 0.05, shelf1: 0.03, belt2: 0.04, belt3: 0.04, belt4: 0.03, beltSpeed: 0.03, marketing: 0.03, cooler: 0.03, servo: 0.03, silo2: 0.02, silo3: 0.02, contracts: 0.05 };
@@ -4219,6 +4236,19 @@ const Bot = {
     }
     B.badDeps.add(d.id);
     return null;
+  },
+  rebuildLine(B, L, k) {
+    const g = B.g;
+    const d = World.depositById(g.world, L.ex.dep);
+    if (!d) return null;
+    const parts = [L.ex].concat(L.refs, L.beltIds.map(id => g.buildings.get(id)).filter(Boolean));
+    for (const b of parts) if (g.buildings.has(b.id)) Grid.remove(g, b);
+    B.lines.splice(B.lines.indexOf(L), 1);
+    g.topologyDirty = true; Game.recompute(g);
+    let r = Bot.buildLine(B, d, k);
+    if (!(r && r.ok)) r = Bot.buildLine(B, d, 0);
+    B.badDeps.delete(d.id);
+    return r;
   },
   upgradeBelts(B, L) {
     const g = B.g;
@@ -4423,14 +4453,14 @@ const SelfTest = {
     });
     test('Glücksstart immer spielbar', () => {
       const luck = [0, 0, 0, 0];
-      for (let s = 1; s <= 600; s++) {
+      for (let s = 1; s <= 2000; s++) {
         const w = World.create(s * 7919, 1);
         luck[w.start.luck]++;
         if (!w.start.deposits.some(d => d.tier === 0)) return { ok: false, info: 'Seed ' + s + ' ohne gewöhnliches Vorkommen' };
         const L = CONFIG.landing;
         if (!w.start.deposits.every(d => Math.hypot(d.x - L.x, d.y - L.y) <= CONFIG.startRadius)) return { ok: false, info: 'Vorkommen außerhalb des Startradius' };
       }
-      return { ok: true, info: 'Verteilung ' + luck.map(c => (c / 6).toFixed(0) + ' %').join(' / ') };
+      return { ok: true, info: 'Normal/Gut/Jackpot/Wunder: ' + luck.map(c => (c / 20).toFixed(1) + ' %').join(' / ') + ' (Ziel 70/20/8/2)' };
     });
     let g;
     test('Bauen, Logistik und Verkauf', () => {
@@ -7641,7 +7671,7 @@ const InfoPanel = {
     const sel = h('select', { class: 'sel' });
     sel.append(h('option', { value: '' }, 'Alles'));
     for (let t = 0; t < 8; t++) sel.append(h('option', { value: 'tier:' + t }, 'Stufe: ' + DATA.TIERS[t].name));
-    for (let r = 1; r < 4; r++) sel.append(h('option', { value: 'ref:' + r }, 'Veredelung: ' + DATA.REFINE_NAMES[r]));
+    for (let r = 0; r < 4; r++) sel.append(h('option', { value: 'ref:' + r }, 'Veredelung: ' + DATA.REFINE_NAMES[r]));
     const known = [...new Set([...g.run.produced].map(k => k >> 2))].sort((a, c) => a - c);
     for (const r of known) sel.append(h('option', { value: 'res:' + r }, 'Rohstoff: ' + DATA.RESOURCES[r].name));
     const f = b[prop];
@@ -7665,7 +7695,7 @@ const InfoPanel = {
     if (b.type === 'belt') return CONFIG.belt.throughput[b.grade] + ' → ' + CONFIG.belt.throughput[Math.min(3, b.grade + 1)] + ' Items/s';
     if (b.type === 'silo') return Fmt.int(Economy.siloCap(g, b)) + ' → ' + Fmt.int(Economy.siloCap(g, b) * CONFIG.siloLevelCapacity) + ' Plätze';
     if (REFINERY_LEVEL[b.type]) return Fmt.num(b.rate) + ' → ' + Fmt.num(b.rate * 1.25) + ' /s';
-    if (SELLER_TIER[b.type] !== undefined) return 'Regal ×1,5 · Abfertigung ×1,3 · Kunden +10 %';
+    if (SELLER_TIER[b.type] !== undefined) return 'Regal ×1,5 · Abfertigung ×1,3 · Kunden +' + Math.round((CONFIG.sellerLevelArrival - 1) * 100) + ' %';
     if (b.type === 'lab') return 'Forschung ×1,3';
     if (BOOSTER[b.type]) return 'Bonus +20 %';
     return 'Neue Optik';
@@ -8453,13 +8483,19 @@ const Debug = {
     el.textContent = 'FPS ' + App.debug.fps.toFixed(0) + ' · Frame ' + App.debug.frameMs.toFixed(1) + ' ms · Sim ' + (App.debug.simMs || 0).toFixed(2) + ' ms · Gebäude ' + g.buildings.size + ' · Items ' + items + ' · Partikel ' + Render.particles.length + ' · Chunks ' + Render.chunks.size + ' · Qualität ' + App.quality + ' · Tick ' + g.tick;
   },
   balance(out) {
-    out.textContent = 'Simulation läuft … (greedy Bot, Planet 1)';
-    const it = Bot.runIter({ maxHours: 6 });
+    out.textContent = 'Simulation läuft … (greedy Bot, Planet 1). Das Spiel pausiert währenddessen.';
+    // the report runs at 10 ticks/s for speed; the live game is paused meanwhile
+    const prevRate = CONFIG.tickRate;
+    App.running = false;
+    CONFIG.tickRate = 10;
+    const it = Bot.runIter({ maxHours: 6, seed: RNG.newSeed() % 100000 });
+    const finish = () => { CONFIG.tickRate = prevRate; App.running = true; MainLoop.last = 0; };
     const step = () => {
       const t0 = performance.now();
       let r;
       while (performance.now() - t0 < 40) { r = it.next(); if (r.done) break; }
-      if (r && r.done) { out.textContent = Bot.format(r.value); return; }
+      if (r && r.done) { finish(); out.textContent = Bot.format(r.value); return; }
+      if (!Debug.el) { finish(); return; }
       if (r && r.value) out.textContent = 'Simulation läuft … ' + Fmt.duration(r.value.time) + ' Spielzeit, ' + Fmt.money(r.value.earned);
       setTimeout(step, 0);
     };

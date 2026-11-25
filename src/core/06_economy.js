@@ -23,7 +23,7 @@ const Economy = {
   arrivalMult(g, b) {
     const t = SELLER_TIER[b.type];
     const same = (g.run.counts[b.type] || 1) - 1;
-    let m = g.mods.arrival * Math.pow(1.1, b.level - 1) / (1 + (CONFIG.crowding[t] || 0) * Math.max(0, same));
+    let m = g.mods.arrival * Math.pow(CONFIG.sellerLevelArrival, b.level - 1) / (1 + (CONFIG.crowding[t] || 0) * Math.max(0, same));
     if (b.type === 'bazaar') m *= 1 + Math.min(CONFIG.pathBonusMax, b.pathTiles * CONFIG.pathBonusPerTile);
     return m;
   },
