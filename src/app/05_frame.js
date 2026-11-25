@@ -17,17 +17,25 @@ const Frame = {
   draw(g, alpha, dt) {
     const ctx = Render.ctx;
     Draw.tm = App.now / 1000;
+    Draw.dt = Math.min(0.1, dt || 0.016);
     App.frame++;
+    Render.night = Render.dayNight(g);
     Render.updateParticles(dt);
     Render.updateDevils(g, dt);
     Render.setWorldTransform(ctx);
-    const vr = Render.visibleRect(2);
+    const vr = Render.visibleRect(3);
     const P = App.debug.prof;
     let pt = P ? performance.now() : 0;
     const mark = k => { if (!P) return; const n = performance.now(); P[k] = (P[k] || 0) * 0.95 + (n - pt) * 0.05; pt = n; };
     Render.drawTerrain(ctx, g, vr); mark('terrain');
-    Render.drawDecor(ctx, g, vr); mark('decor');
-    Render.drawDeposits(ctx, g, vr); mark('deposits');
+    Render.drawDecor(ctx, g, vr);
+    Render.drawPrints(ctx); mark('decor');
+    const deps = Frame.deps || (Frame.deps = []);
+    deps.length = 0;
+    World.depositsInRect(g.world, vr.x0 - 2, vr.y0 - 2, vr.x1 + 2, vr.y1 + 2, deps);
+    const dppt = Art.bucket(Render.ppt(), 96);
+    for (const d of deps) { const s = DepositArt.sprite(d, dppt); ctx.drawImage(s.canvas, s.ox - Render.ox, s.oy - Render.oy, s.w, s.h); }
+    mark('deposits');
     if (App.debug.chunkBorders) Frame.chunkBorders(ctx, vr);
     // collect visible buildings
     const S = CONFIG.chunkSize;
@@ -47,41 +55,40 @@ const Frame = {
       }
     }
     mark('collect');
-    // layer 1: flat things (paths, belts)
+    // layer 1: flat things (paths, belts, belt items)
     for (const b of vis) if (b.type === 'path') Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
     const belts = Frame.belts || (Frame.belts = []);
     belts.length = 0;
     for (const b of vis) if (b.type === 'belt') belts.push(b);
-    Draw.beltsBatch(ctx, g, belts);
-    // items on belts and nodes
-    const zoomS = App.cam.zoom;
-    const isz = 0.21;
-    if (zoomS >= 6) for (const b of vis) {
-      if (b.type === 'belt') { for (const it of b.items) { const p = Draw.itemPos(b, it, alpha); Draw.item(ctx, it.res, it.ref, p[0] - Render.ox, p[1] - Render.oy, isz); } }
-    }
+    BeltArt.draw(ctx, g, belts, Draw.tm);
+    BeltArt.drawItems(ctx, g, belts, alpha, Draw.tm);
+    BeltArt.plops(g, belts);
     mark('belts+items');
-    // layer 2: buildings
-    for (const b of vis) if (b.type !== 'path' && b.type !== 'belt' && b.type !== 'bridge') Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
-    for (const b of vis) {
-      if (b.buf && b.type !== 'extractor' && b.buf.length) Draw.item(ctx, b.buf[0].res, b.buf[0].ref, b.x + 0.5 - Render.ox, b.y + 0.5 - Render.oy, isz * 0.9);
-      if (b.lanes) for (let d = 0; d < 4; d++) if (b.lanes[d] && b.lanes[d].length) Draw.item(ctx, b.lanes[d][0].res, b.lanes[d][0].ref, b.x + 0.5 - Render.ox, b.y + 0.5 - Render.oy, isz * 0.9);
+    // layer 2: batched cast shadows, then buildings back to front
+    const solid = Frame.solid || (Frame.solid = []);
+    solid.length = 0;
+    for (const b of vis) if (b.type !== 'path' && b.type !== 'belt' && b.type !== 'bridge') solid.push(b);
+    BuildingArt.castShadows(ctx, g, solid);
+    solid.sort((a, b) => (a.y + a.h) - (b.y + b.h) || a.x - b.x);
+    const isz = 0.2;
+    for (const b of solid) {
+      Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
+      if (b.buf && b.type !== 'extractor' && b.buf.length) Draw.item(ctx, b.buf[0].res, b.buf[0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
+      if (b.lanes) for (let d = 0; d < 4; d++) if (b.lanes[d] && b.lanes[d].length) Draw.item(ctx, b.lanes[d][0].res, b.lanes[d][0].ref, b.x + 0.5 - Render.ox, b.y + 0.1 - Render.oy, isz);
     }
     for (const b of vis) if (b.type === 'bridge') Draw.bridge(ctx, g, b, alpha);
     mark('buildings');
-    // tips
+    // tips: spinning coins with a glow
+    const tm = Draw.tm;
     for (const tp of g.run.tips) {
-      const bob = Math.sin(Draw.tm * 4 + tp.x) * 0.1;
-      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.6;
-      ctx.drawImage(Sprites.glow('#ffd24a'), tp.x - Render.ox - 0.6, tp.y - Render.oy - 0.6 + bob, 1.2, 1.2);
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#ffd24a'; ctx.strokeStyle = '#8a5a00'; ctx.lineWidth = 0.05;
-      ctx.beginPath(); ctx.arc(tp.x - Render.ox, tp.y - Render.oy + bob, 0.24, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#8a5a00'; ctx.font = '800 0.24px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(CURRENCY_SHORT, tp.x - Render.ox, tp.y - Render.oy + bob + 0.01);
+      const bob = Math.abs(Math.sin(tm * 3 + tp.x)) * 0.18;
+      const x = tp.x - Render.ox, y = tp.y - Render.oy;
+      ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(x, y + 0.2, 0.18 - bob * 0.3, 0.06, 0, 0, Math.PI * 2); ctx.fill();
+      Draw.glowAt(ctx, x, y - bob, 0.55, '#ffd24a', 0.55);
+      ctx.drawImage(FxLib.get('coin', Math.floor(tm * 10 + tp.x) & 7), x - 0.22, y - bob - 0.22, 0.44, 0.44);
     }
-    // customers
-    for (const b of vis) if (b.customers && b.customers.length) Draw.customers(ctx, g, b);
-    // astronaut
+    // customers and the astronaut
+    for (const b of solid) if (b.customers && b.customers.length) Draw.customers(ctx, g, b);
     const p = g.run.player;
     const ax = (p.px !== undefined ? p.px + (p.x - p.px) * alpha : p.x), ay = (p.py !== undefined ? p.py + (p.y - p.py) * alpha : p.y);
     Draw.astronaut(ctx, g, ax - Render.ox, ay - Render.oy, Draw.tm);
@@ -91,38 +98,54 @@ const Frame = {
     Frame.overlays(ctx, g, vis, ax, ay);
     // atmosphere and lights
     const night = Render.drawAtmosphere(ctx, g, dt);
-    if (night > 0.05) {
-      Render.setWorldTransform(ctx);
-      ctx.globalCompositeOperation = 'lighter';
-      for (const b of vis) {
-        const L = LIGHT_TYPES[b.type];
-        if (!L) continue;
-        const r = L[1] * (b.type === 'lamp' ? 1 + b.level * 0.3 : 1);
-        ctx.globalAlpha = night * 0.55;
-        ctx.drawImage(Sprites.glow(L[0]), b.x + b.w / 2 - Render.ox - r / 2, b.y + b.h / 2 - Render.oy - r / 2, r, r);
-      }
-      ctx.globalAlpha = night * 0.5;
-      ctx.drawImage(Sprites.glow('#ffe8c0'), ax - Render.ox - 2.5, ay - Render.oy - 3, 5, 5);
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    // readable on top of the night tint: warnings and floating texts
     Render.setWorldTransform(ctx);
-    if (zoomS >= 10) for (const b of vis) if (b.warn) Frame.warnIcon(ctx, b);
+    for (const d of deps) DepositArt.dynamic(ctx, d, tm, night, App.cam.zoom);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    if (night > 0.05) Frame.nightLights(ctx, g, solid, night, ax, ay);
+    // UI overlays on top of the night grade: badges, level pills, floating texts
+    if (App.cam.zoom >= 10) for (const b of solid) if (b.warn) BuildingArt.badge(ctx, b, tm);
+    for (const b of solid) { Draw.levelTag(ctx, b); if (b.type === 'terminal' && App.cam.zoom >= 12) Frame.contractBadge(ctx, g, b); }
     Render.drawFloating(ctx, dt);
     document.body.classList.toggle('lowq', App.quality === 'low');
     Frame.edgeMarkers(ctx, g);
     mark('overlays+atmo');
   },
 
-  warnIcon(ctx, b) {
-    const x = b.x + b.w / 2 - Render.ox, y = b.y - 0.35 - Render.oy + Math.sin(Draw.tm * 4) * 0.06;
-    const s = Math.max(0.35, 12 / App.cam.zoom);
-    const red = b.warn === 'full' || b.warn === 'empty' || b.warn === 'nocon';
-    ctx.fillStyle = red ? '#ff5a5a' : '#ffc24d'; ctx.strokeStyle = '#1a1010'; ctx.lineWidth = s * 0.1;
-    ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s * 0.95, y + s * 0.65); ctx.lineTo(x - s * 0.95, y + s * 0.65); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#1a1010'; ctx.font = '900 ' + (s * 1.05) + 'px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('!', x, y + s * 0.12);
+  nightLights(ctx, g, solid, night, ax, ay) {
+    ctx.globalCompositeOperation = 'lighter';
+    const tm = Draw.tm;
+    for (const b of solid) {
+      const L = BuildingArt.lights(b);
+      if (!L.length) continue;
+      const bx = b.x - Render.ox, by = b.y - Render.oy;
+      for (const [lx, ly, r, col] of L) {
+        const fl = b.type === 'lamp' || b.type === 'bazaar' ? 0.92 + 0.08 * Math.sin(tm * 9 + b.id) : 1;
+        ctx.globalAlpha = night * 0.62 * fl;
+        ctx.drawImage(FxLib.tinted('soft', 0, col), bx + lx - r / 2, by + ly - r / 2, r, r);
+      }
+      // light pool on the ground under lamps
+      if (b.type === 'lamp') { ctx.globalAlpha = night * 0.35; ctx.drawImage(FxLib.tinted('soft', 0, b.level >= 2 ? '#d8f0ff' : '#ffe28a'), bx - 1.3, by - 0.6, 3.6, 2.6); }
+    }
+    // helmet lamp of the astronaut
+    ctx.globalAlpha = night * 0.5;
+    ctx.drawImage(FxLib.tinted('soft', 0, '#ffe8c0'), ax - Render.ox - 2.5, ay - Render.oy - 3, 5, 5);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  },
+
+  contractBadge(ctx, g, b) {
+    const n = g.run.contracts.length;
+    const x = b.x + b.w / 2 - Render.ox, y = b.y - Render.oy - 0.6;
+    const fs = Math.max(0.3, 12 / App.cam.zoom);
+    ctx.font = '800 ' + fs + 'px system-ui';
+    const txt = String(n), tw = ctx.measureText(txt).width + fs * 1.9;
+    ctx.fillStyle = 'rgba(42,26,52,.88)'; Art.rrect(ctx, x - tw / 2, y - fs * 0.75, tw, fs * 1.5, fs * 0.75); ctx.fill();
+    ctx.strokeStyle = '#ff9fd0'; ctx.lineWidth = fs * 0.08; ctx.stroke();
+    // document glyph
+    const gx = x - tw / 2 + fs * 0.55, gy = y;
+    ctx.fillStyle = '#ffd0ea'; ctx.fillRect(gx - fs * 0.25, gy - fs * 0.35, fs * 0.5, fs * 0.7);
+    ctx.fillStyle = '#7a4a8a'; for (let i = 0; i < 3; i++) ctx.fillRect(gx - fs * 0.16, gy - fs * 0.2 + i * fs * 0.17, fs * 0.32, fs * 0.06);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(txt, gx + fs * 0.45, y + fs * 0.03);
   },
 
   chunkBorders(ctx, vr) {
@@ -203,12 +226,12 @@ const Frame = {
       } else if (gh.spec) {
         const s = gh.spec;
         const sz = Grid.size(s.type, s.rot, s.len);
-        ctx.globalAlpha = 0.6;
+        ctx.globalAlpha = 0.55 + 0.15 * Math.sin(Draw.tm * 5);
         const fake = Grid.make({ nextId: 0 }, Object.assign({}, s, { id: -1, res: gh.dep ? gh.dep.res : undefined, tier: gh.dep ? gh.dep.tier : 0 }));
         fake.w = sz.w; fake.h = sz.h; fake._sv = -5; fake.shape = 0;
         try { if (s.type !== 'bridge') Draw.building(ctx, Object.assign({}, g, { topoVersion: -5 }), fake, s.x - Render.ox, s.y - Render.oy); } catch (e) { /* preview only */ }
         ctx.globalAlpha = 1;
-        Frame.footprint(ctx, s.x, s.y, sz.w, sz.h, gh.ok, 0.25);
+        Frame.footprint(ctx, s.x, s.y, sz.w, sz.h, gh.ok, 0.18 + 0.08 * Math.sin(Draw.tm * 5));
         if (s.type !== 'belt' && (DATA.BUILDINGS[s.type].w > 1 || DATA.BUILDINGS[s.type].h > 1) && !Grid.isDeco(s.type) && s.type !== 'extractor') {
           const pb = { x: s.x, y: s.y, w: sz.w, h: sz.h, rot: s.rot };
           const fp = Grid.frontPort(pb);
@@ -219,14 +242,39 @@ const Frame = {
         Frame.bonusPreview(ctx, g, s, sz, gh);
       }
     }
-    // scanner ping
+    // scanner: thick ring wave, trailing thin ring and a radar sweep
     const ping = g.run.scanPing;
     if (ping) {
       const k = U.clamp(ping.t / 1.6, 0, 1);
-      ctx.strokeStyle = Col.rgba(Render.palette.accent, 1 - k); ctx.lineWidth = 4 * lw;
-      ctx.beginPath(); ctx.arc(ping.x - Render.ox, ping.y - Render.oy, ping.r * k, 0, Math.PI * 2); ctx.stroke();
-      ctx.lineWidth = 2 * lw;
-      ctx.beginPath(); ctx.arc(ping.x - Render.ox, ping.y - Render.oy, ping.r * k * 0.7, 0, Math.PI * 2); ctx.stroke();
+      const cx = ping.x - Render.ox, cy = ping.y - Render.oy;
+      const acc = Render.palette.accent;
+      const r = ping.r * Art.ease.outCubic(k), r2 = ping.r * Art.ease.outCubic(U.clamp((ping.t - 0.18) / 1.6, 0, 1));
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = (1 - k) * 0.85;
+      ctx.drawImage(FxLib.tinted('ringThick', 0, acc), cx - r, cy - r, r * 2, r * 2);
+      ctx.globalAlpha = (1 - k) * 0.6;
+      if (r2 > 0.1) ctx.drawImage(FxLib.tinted('ring', 0, '#ffffff'), cx - r2, cy - r2, r2 * 2, r2 * 2);
+      const sw = Math.min(ping.r, 3 + ping.t * ping.r);
+      ctx.globalAlpha = Math.max(0, 1 - ping.t / 2.5) * 0.55;
+      ctx.translate(cx, cy); ctx.rotate(ping.t * 5);
+      ctx.drawImage(FxLib.tinted('radar', 0, acc), -sw, -sw, sw * 2, sw * 2);
+      ctx.restore();
+    }
+    // freshly scanned deposits pop up in the world (staggered, with overshoot)
+    for (const m of Render.edgeMarks) {
+      if (!m.scan) continue;
+      const age = App.now - m.at;
+      if (age < 0 || age > 4500) continue;
+      const sc = age < 260 ? Art.ease.outBack(age / 260) : 1;
+      const fade = age > 3800 ? 1 - (age - 3800) / 700 : 1;
+      const x = m.x - Render.ox, y = m.y - Render.oy;
+      const s = Math.max(0.5, 16 / App.cam.zoom) * sc;
+      ctx.save(); ctx.globalAlpha = fade;
+      ctx.strokeStyle = m.color; ctx.lineWidth = s * 0.12;
+      ctx.beginPath(); ctx.arc(x, y, s * (1 + 0.15 * Math.sin(Draw.tm * 6)), 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = m.color; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = s * 0.08;
+      ctx.beginPath(); ctx.moveTo(x, y - s * 0.5); ctx.lineTo(x - s * 0.35, y - s * 1.2); ctx.arc(x, y - s * 1.3, s * 0.38, Math.PI * 0.8, Math.PI * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
     }
     // pins in world
     for (const pin of g.run.pins) {
@@ -257,7 +305,9 @@ const Frame = {
       const ox = r.x + r.w / 2 - Render.ox, oy = r.y + r.h / 2 - Render.oy;
       ctx.strokeStyle = 'rgba(155,255,140,.9)'; ctx.lineWidth = 3 / Render.S;
       ctx.strokeRect(r.x - Render.ox, r.y - Render.oy, r.w, r.h);
+      ctx.setLineDash([0.22, 0.14]); ctx.lineDashOffset = -Draw.tm * 1.2;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ox, oy); ctx.stroke();
+      ctx.setLineDash([]);
       ctx.fillStyle = 'rgba(0,0,0,.7)';
       const tw = ctx.measureText(label).width + 0.2;
       ctx.fillRect((cx + ox) / 2 - tw / 2, (cy + oy) / 2 - 0.22, tw, 0.44);
@@ -285,7 +335,10 @@ const Frame = {
       const ang = Math.atan2(sy - cy, sx - cx);
       const k = Math.min((W / 2 - pad) / Math.abs(Math.cos(ang) || 1e-6), (H / 2 - pad) / Math.abs(Math.sin(ang) || 1e-6));
       const ex = cx + Math.cos(ang) * k, ey = cy + Math.sin(ang) * k;
-      ctx.save(); ctx.translate(ex, ey); ctx.rotate(ang);
+      const age = m.at !== undefined ? now - m.at : 1000;
+      if (age < 0) continue;
+      const pop = age < 260 ? Art.ease.outBack(age / 260) : 1;
+      ctx.save(); ctx.translate(ex, ey); ctx.rotate(ang); ctx.scale(pop, pop);
       ctx.fillStyle = m.color; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -10); ctx.lineTo(-3, 0); ctx.lineTo(-8, 10); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.restore();

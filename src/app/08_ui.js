@@ -403,7 +403,9 @@ const UI = {
     Tutorial.onEvent('scan');
     if (!found) return;
     const now = App.now;
-    for (const d of found) Render.edgeMarks.push({ x: d.x + 0.5, y: d.y + 0.5, color: DATA.TIERS[d.tier].color, label: '', at: now });
+    const pl = g.run.player;
+    found.slice().sort((a, b) => Math.hypot(a.x - pl.x, a.y - pl.y) - Math.hypot(b.x - pl.x, b.y - pl.y))
+      .forEach((d, i) => Render.edgeMarks.push({ x: d.x + 0.5, y: d.y + 0.5, color: DATA.TIERS[d.tier].color, label: '', at: now + 350 + i * 40, scan: true }));
     if (found.length) {
       const best = found.reduce((a, d) => d.tier > a.tier ? d : a, found[0]);
       UI.toast('Scanner: ' + found.length + ' neue Vorkommen. Bestes: <b style="color:' + DATA.TIERS[best.tier].color + '">' + esc(DATA.RESOURCES[best.res].name) + '</b> (' + DATA.TIERS[best.tier].name + ')', best.tier >= 3 ? 'gold' : 'good');

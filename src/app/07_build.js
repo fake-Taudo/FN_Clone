@@ -179,14 +179,28 @@ const Build = {
     Audio2.play(b.type === 'belt' ? 'belt' : 'build');
     const r = Grid.rect(b);
     if (spent > 0) Render.float('-' + Fmt.num(spent) + ' ' + CURRENCY_SHORT, r.x + r.w / 2, r.y, '#ff9a8a');
-    if (!App.settings.reducedFx) for (let i = 0; i < 10; i++) Render.spawn('dust', r.x + Math.random() * r.w, r.y + r.h - Math.random() * 0.5, (Math.random() - 0.5) * 2, -Math.random(), 0.8, Render.palette.particle, 0.1);
+    const now = App.now;
+    for (const pb of list) pb._pop = now;
+    if (!App.settings.reducedFx) {
+      for (let i = 0; i < 10; i++) Render.spawn('dust', r.x + Math.random() * r.w, r.y + r.h - Math.random() * 0.5, (Math.random() - 0.5) * 2, -Math.random(), 0.8, Render.palette.particle, 0.1);
+      if (b.type !== 'belt' && b.type !== 'path' && b.type !== 'fence') Render.ring(r.x + r.w / 2, r.y + r.h / 2, Math.max(r.w, r.h) * 0.7, '#ffffff', 0.45);
+    }
     Tutorial.onEvent('place', b);
     UI.refreshBuildBar();
+  },
+  demolishFx(b) {
+    if (!b || b.x === undefined) return;
+    const r = Grid.rect(b), cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    const big = r.w * r.h > 1;
+    Render.puff(cx, cy + r.h * 0.3, big ? 14 : 5, Render.palette.particle, big ? 0.35 : 0.2);
+    Render.puff(cx, cy, big ? 6 : 2, '#c8c8c8', big ? 0.3 : 0.15);
+    if (big) Render.coinBurst(cx, cy, 6);
   },
   afterRemove(list, refund) {
     Audio2.play('remove');
     const b = list[0];
     if (b) Render.float('+' + Fmt.num(refund) + ' ' + CURRENCY_SHORT, b.x + b.w / 2, b.y, '#9bff8c');
+    if (!App.settings.reducedFx) for (const o of list.slice(0, 40)) Build.demolishFx(o);
     if (App.selected && list.includes(App.selected)) UI.select(null);
     UI.refreshBuildBar();
   },
@@ -270,6 +284,7 @@ const Build = {
     removed.push(spec);
     Audio2.play('remove');
     Render.float('+' + Fmt.num(spec.refund), b.x + b.w / 2, b.y, '#9bff8c');
+    if (!App.settings.reducedFx) Build.demolishFx(b);
     if (App.selected === b) UI.select(null);
   },
   eraseDone(removed) { Actions.record(App.g, { kind: 'remove', specs: removed }); UI.refreshBuildBar(); },

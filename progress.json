@@ -1,6 +1,6 @@
 {
-  "updated": "2026-11-25T13:12:23.587Z",
-  "currentPhase": 10,
+  "updated": "2026-11-25T17:26:10.898Z",
+  "currentPhase": 16,
   "phases": [
     {
       "id": 1,
@@ -61,6 +61,66 @@
       "name": "Balancing & Härtung",
       "detail": "Balancing-Simulation, Performance, Selbsttests, Mobile-Test",
       "status": "done"
+    },
+    {
+      "id": 11,
+      "name": "Grafik 1: Fundament",
+      "detail": "Art-Bibel: Licht, Paletten, Materialien, LOD, Easing, Sprite-Cache",
+      "status": "done"
+    },
+    {
+      "id": 12,
+      "name": "Grafik 2: Terrain & Nacht",
+      "detail": "Bodenzonen, Körnung, Krater, Felsvarianten, Spuren, sichtbare Nacht",
+      "status": "done"
+    },
+    {
+      "id": 13,
+      "name": "Grafik 3: Vorkommen",
+      "detail": "Organische Formen, Seltenheits-Spektakel, Idle-Animationen",
+      "status": "done"
+    },
+    {
+      "id": 14,
+      "name": "Grafik 4: Items",
+      "detail": "91 Kompositionen, Veredelung als Materialwandlung, LODs, Unterscheidbarkeitstest",
+      "status": "done"
+    },
+    {
+      "id": 15,
+      "name": "Grafik 5: Gebäude & Bänder",
+      "detail": "2,5D-Volumen, 4 Upgrade-Tiers, eigene Verkaufsgebäude, Auto-Tiling",
+      "status": "done"
+    },
+    {
+      "id": 16,
+      "name": "Grafik 6: Figuren & Fahrzeuge",
+      "detail": "Astronaut-Laufzyklus, 6 Alien-Spezies, Karawane, 3 Schiffsklassen",
+      "status": "active"
+    },
+    {
+      "id": 17,
+      "name": "Grafik 7: Planeten",
+      "detail": "Individuelle Planetenkugeln und Boden-/Prop-Sets",
+      "status": "open"
+    },
+    {
+      "id": 18,
+      "name": "Grafik 8: Effekte",
+      "detail": "Partikel-Bibliothek: Münzen, Radar, Funken, Rauch, Dampf, Glint, Blitze",
+      "status": "open"
+    },
+    {
+      "id": 19,
+      "name": "Grafik 9: Animationen",
+      "detail": "Zustandsmaschinen, Landesequenzen, Interaktions- und Kunden-Animationen",
+      "status": "open"
+    },
+    {
+      "id": 20,
+      "name": "Grafik 10: Performance & QS",
+      "detail": "Messungen, Unterscheidbarkeit, Kontrast, Vorher/Nachher-Bögen",
+      "status": "open"
     }
   ],
   "log": [
@@ -103,6 +163,34 @@
     {
       "time": "2026-11-25T13:12:23.587Z",
       "text": "Phase 10 fertig: Balancing per Bot (Median: Kundenstufe 2 nach 16 min, Stufe 4 nach 1:29 h, Rebirth nach 3:46 h), 11/11 Selbsttests grün, Browser-Tests Desktop/Handy hoch/quer ohne Fehler. Das Spiel ist fertig."
+    },
+    {
+      "time": "2026-11-25T16:44:54.565Z",
+      "text": "Neuer Auftrag: Grafik- und Animations-Upgrade in 10 Phasen. Vorher-Stand gesichert, Performance-Basismessung läuft."
+    },
+    {
+      "time": "2026-11-25T17:26:10.745Z",
+      "text": "Fundament: Art-Bibliothek (2.5D-Primitive, Paletten, Easing, Sprite-Cache mit Budget), Effekt-Bibliothek und Partikel-Pool."
+    },
+    {
+      "time": "2026-11-25T17:26:10.773Z",
+      "text": "Terrain: Farbzonen, Mikrokorn, Krater mit Tiefe, 12 Felsvarianten, Dünen, Fußspuren, Planeten-Props, deutliche Tag/Nacht-Phase."
+    },
+    {
+      "time": "2026-11-25T17:26:10.803Z",
+      "text": "Vorkommen: organische Form, Risse, Verfärbung, Seltenheits-Spektakel bis zur prismatischen Lichtsäule."
+    },
+    {
+      "time": "2026-11-25T17:26:10.842Z",
+      "text": "Items: 91 eigene Kompositionen in 14+ Familien, Veredelung als Materialwechsel mit Silber/Gold-Fassung, LOD S/M/L."
+    },
+    {
+      "time": "2026-11-25T17:26:10.869Z",
+      "text": "Gebäude & Bänder: 2.5D-Körper mit 4 Ausbaustufen, Schlagschatten, Bänder mit Material je Stufe, echten Kurven und Endkappen."
+    },
+    {
+      "time": "2026-11-25T17:26:10.898Z",
+      "text": "Figuren: Astronaut mit 8-Frame-Lauf, 6 Alien-Arten, Karawane, Landesequenzen – im Feinschliff."
     }
   ]
 }

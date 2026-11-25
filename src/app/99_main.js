@@ -165,7 +165,7 @@ const MainLoop = {
           const b = e.b;
           Audio2.play('sell', e.entry.tier);
           Render.float('+' + Fmt.num(e.entry.rev) + ' ' + CURRENCY_SHORT, b.x + b.w / 2, b.y - 0.2, e.entry.ok ? '#7dff8a' : '#d8ffd8');
-          if (!App.settings.reducedFx) for (let i = 0; i < 6 + e.entry.tier * 2; i++) Render.spawn('coin', b.x + b.w / 2, b.y + b.h / 2, (Math.random() - 0.5) * 3, -2 - Math.random() * 2, 0.9, '#ffd24a', 0.12);
+          if (!App.settings.reducedFx) Render.coinBurst(b.x + b.w / 2, b.y + b.h * 0.45, Math.min(18, 5 + e.entry.tier * 3));
           break;
         }
         case 'tip': Audio2.play('coin'); Render.float('+' + Fmt.num(e.tp.value) + ' Trinkgeld', e.tp.x, e.tp.y, '#ffd24a'); break;
@@ -316,5 +316,5 @@ const MainLoop = {
 };
 
 // Small handle for automated tests and power users (read-only use recommended).
-window.__AO__ = { Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
+window.__AO__ = { Art, ItemArt, FxLib, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
 MainLoop.boot();

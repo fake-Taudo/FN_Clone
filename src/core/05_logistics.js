@@ -6,7 +6,7 @@ const Items = {
   live: 0,
   make(res, ref) {
     const it = Items.pool.length ? Items.pool.pop() : { res: 0, ref: 0, p: 0, pp: 0, from: 0 };
-    it.res = res; it.ref = ref; it.p = 0; it.pp = 0; it.from = 0;
+    it.res = res; it.ref = ref; it.p = 0; it.pp = 0; it.from = 0; it._born = 0; // _born: render-only spawn marker
     Items.live++;
     return it;
   },
