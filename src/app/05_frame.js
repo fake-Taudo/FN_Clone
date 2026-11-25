@@ -83,11 +83,8 @@ const Frame = {
     Draw.astronaut(ctx, g, ax - Render.ox, ay - Render.oy, Draw.tm);
     Render.drawParticles(ctx);
     mark('chars+particles');
-    // warnings
-    if (zoomS >= 10) for (const b of vis) if (b.warn) Frame.warnIcon(ctx, b);
     // overlays
     Frame.overlays(ctx, g, vis, ax, ay);
-    Render.drawFloating(ctx, dt);
     // atmosphere and lights
     const night = Render.drawAtmosphere(ctx, g, dt);
     if (night > 0.05) {
@@ -105,6 +102,10 @@ const Frame = {
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }
+    // readable on top of the night tint: warnings and floating texts
+    Render.setWorldTransform(ctx);
+    if (zoomS >= 10) for (const b of vis) if (b.warn) Frame.warnIcon(ctx, b);
+    Render.drawFloating(ctx, dt);
     document.body.classList.toggle('lowq', App.quality === 'low');
     Frame.edgeMarkers(ctx, g);
     mark('overlays+atmo');

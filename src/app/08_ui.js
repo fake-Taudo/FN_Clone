@@ -119,6 +119,10 @@ const UI = {
       }
     }
     [...wrap.children].forEach((el, i) => { const ev = evs[i]; if (ev) el.lastChild.textContent = 'für ' + Fmt.time(ev.end - g.run.time); });
+    // keep toasts below the event banners
+    const bb = wrap.getBoundingClientRect();
+    const base = window.innerWidth < 760 ? 78 : 70;
+    $('#toasts').style.top = Math.max(base, evs.length ? bb.bottom + 8 : 0) + 'px';
   },
   updateCompass() {
     const g = App.g;
