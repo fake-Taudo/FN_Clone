@@ -94,3 +94,114 @@ Balancing (greedy Bot, echte Simulation, Planet 1, Normalstart)
   1,12 Mio offline gegenüber 1,28 Mio online (87 %). 8 h Offline-Rechnung mit
   2.000 Gebäuden: rund 30 ms.
 - Seltenheitsprüfung: 100.000 Vorkommen, maximale Abweichung 2,8 % (Grenze 10 %).
+
+=====================================================================
+GRAFIK-ENTSCHEIDUNGEN (Grafik- und Animations-Upgrade)
+=====================================================================
+Grundsatz
+- Nur Optik und Animation geändert. Spiellogik, Ökonomie, Balancing, Speicherstände
+  und Steuerung sind unverändert; alte Spielstände laden. Einzige Berührung des
+  Kerns: Items.make setzt das reine Render-Merkmal _born zurück (Spawn-Pop).
+- Alles bleibt prozedural (Canvas 2D) in einer index.html, ohne externe Bilder,
+  Schriften oder Bibliotheken. Texturen enthalten keine Schrift; Stufen, Zahlen und
+  Vertragsanzahl sind UI-Overlays.
+
+Stil
+- Flacher Vektorstil, aber 2.5D: Draufsicht im 3/4-Winkel (1 Feld Höhe = 0,55 Feld
+  nach oben), Licht von links oben. Jede Fläche hat 3 Töne (hell/basis/dunkel),
+  dazu Randlicht und eine aus der Grundfarbe abgeleitete, nie schwarze Kontur.
+- Kontaktschatten unter jedem Objekt, Schlagschatten proportional zur Höhe, mit dem
+  Tageslauf in Richtung und Länge veränderlich. Alle Schlagschatten eines Frames
+  werden als ein einziger Pfad gefüllt (überlappende Schatten werden nicht doppelt
+  dunkel).
+- Bausteine in src/app/02a_art.js: Paletten, Box/Zylinder/Kuppel mit Facettenlicht,
+  Easing-Bibliothek, Phasenversatz je Objekt, LRU-Sprite-Cache mit Speicherbudget
+  (Desktop 110 MB, Touch 48 MB), planetenspezifische Einträge (Präfix P|) werden
+  beim Planetenwechsel verworfen.
+
+Terrain & Nacht
+- Farbzonen pro Planet, Mikrokorn (weltverankert), Krater mit Tiefe in 3 Größen und
+  6 Varianten, 12 Felsvarianten, Dünen, Kiesel, Planeten-Requisiten (Planet 1-8 fest,
+  ab 9 prozedurale Kombination). Fußspuren und Rover-Spuren verblassen in 15 s.
+- Nacht als Multiply-Farbgrading (deutlich dunkler und kühler), danach additive
+  Lichter: Gebäudefenster, Laternen mit Lichtkegel, Vorkommen-Glühen, Helmlampe.
+  UI-Elemente (Sprechblasen, Status-Badges, Stufen) liegen über dem Grading.
+- Bei mittlerem und fernem Zoom (bis 64 px/Feld) werden Gelände, Korn und Deko pro
+  (Teil-)Chunk in ein Bild gebacken; animierte Deko-Lichter bleiben live.
+
+Vorkommen
+- Organische Blob-Form statt Kacheln, Risse mit Ausblendung, verfärbter Boden.
+  Seltenheit steigert das Spektakel: Geröll -> Erzadern -> Kristallspitzen ->
+  Cluster mit Innenlicht -> legendäres Flimmern -> kreisende Splitter (mythisch) ->
+  Energiekern mit Bögen und Gravitationsringen (exotisch) -> prismatische
+  Lichtsäule (exquisit). Ab legendär ein Fernleuchtfeuer.
+
+Items
+- 91 eigene Kompositionen in über 14 Familien (Pulver, Kies, Brocken, Platten,
+  Nadeln, Geoden, Kristalle, Erze, Nuggets, Opale, Meteoriten ...). Legendär und
+  höher folgen dem Namen (z. B. Sternenherz: achtstrahliger Sternkristall mit
+  pulsierendem Herzkern, Ewigkeitsprisma: Prisma mit Regenbogenfächer).
+- Veredelung als Materialwechsel: roh -> veredelt (Barren / geschliffener Stein /
+  Pressblock / Phiole) -> hochveredelt (+ Silberfassung) -> perfekt (Goldfassung,
+  Glanz, Funken). LOD: klein <= 26 px vereinfacht, mittel <= 52 px, groß.
+- Kontur aus der Alpha-Maske; sehr dunkle Items und alle Items auf sehr dunklen
+  Planetenböden (Ignis, Nebulon, Singularis) bekommen eine helle Kontur.
+
+Gebäude
+- 4 optische Ausbaustufen: Stufe 1-3 roh/genietet, 4-6 sauberer Stahl mit
+  Warnmarkierung, 7-9 Anthrazit + Messing mit Zusatzmodulen, 10 Weiß + Gold mit
+  Leuchtkanten. Wechsel der Stufe: 250 ms Überblendung, Funken und Lichtpuls.
+- Statischer Körper als Sprite (Typ, Stufe, Drehung, Größe, Auflösung), animierte
+  Teile pro Frame darüber: Bohrkopf mit Zustandsautomat (aus -> 0,6 s Anlauf ->
+  Lauf mit Vibration -> blockiert -> Auslauf), Ressourcenfenster, Silo-Füllfenster
+  mit Welle und Zufluss-Puls, Raffinerie-Oberlicht mit Glut, Fortschritt, Dampf und
+  Ausgabe-Puff, drehendes Zahnrad, Lichtbögen, Labor-Schüssel und Hologramm,
+  Kräne, Portalkran-Laufkatze, Holo-Globus, wehende Flaggen, Leuchtfeuer-Strahl.
+- Verkaufsgebäude klar unterscheidbar: Basar (Stoffdach, Kisten, Lichterkette),
+  Karawanenhof (Hof, Kegelzelte, Brunnen), Shuttle-Pad (quadratisch, Eckleuchten,
+  Warnmarkierung, kein "H"), Orbitalhafen (Turm, zwei Pads, Kräne), Frachterdock
+  (Portalkran, Container, Landebucht), Terminal (Schüssel, Holo; Vertragsanzahl als
+  UI-Badge). Deko mindestens doppelt so groß, Wege und Zäune mit Auto-Tiling.
+- Kleine runde Status-Badges mit Symbol statt großer Warndreiecke.
+
+Bänder
+- Grundplatte, genietete Schienen, Profil läuft mit echter Bandgeschwindigkeit,
+  echte Viertelkreis-Kurven (Items folgen dem Bogen), Endkappen, T-Einmündungen.
+  Stufen: Gummi / gelbe Metalllamellen / stahlblau mit leuchtenden Pfeilen /
+  Plasma mit pulsierendem Pink.
+- Items: ±8 % seitlicher und ±6° Drehversatz, Spawn-Pop 0,6 -> 1 in 120 ms,
+  "Plopp" beim Abgeben, Zittern bei Stau.
+- Performance: bis 64 px/Feld wird die statische Bandebene pro 16x16-Teilchunk
+  gecacht (fern 32x32), das bewegte Profil als gebündelter Pfad je Stufe
+  gezeichnet; darüber Einzel-Sprites mit voller Animation.
+
+Figuren & Fahrzeuge
+- Astronaut: 8-Frame-Lauf vorne/hinten/seitlich, Atmen im Stand, Winken nach
+  3 s Leerlauf, Jetpack-Flamme beim Sprint, Fußstaub, Fußspuren; Rover mit
+  drehenden Speichen. Sechs Alien-Arten (Glibber, Stelzer, Krabbler, Pilzling,
+  Schweber, Steinling) mit 6-Frame-Lauf, Stand, Freude, Ungeduld, Enttäuschung.
+  Karawane aus 3-5 Käfer-Rovern mit Ladung und Wimpel. Shuttle, Handelsschiff und
+  Frachter mit eigener Silhouette und 4-Phasen-Landung (Anflug, Bremsen mit
+  Bodenstaub, Aufsetzen mit Federung, Entladen) und umgekehrtem Start;
+  weicher, mit der Höhe skalierender Schatten.
+- Sprechblase als UI-Element: Pop mit Überschwinger, Geduldsring, live
+  herunterzählende Menge, Stimmungs-Glyphe.
+
+Planeten
+- Jede Kugel prozedural aus nahtlosem 3D-Rauschen: Krater, Patina-Seen, Eisrisse,
+  Lavaadern (leuchten auf der Nachtseite), Dschungel mit Wolken, Gasbänder mit
+  Sturm, Kristallfacetten, Dunkelwelt mit Akkretionsring. Weicher Terminator,
+  Atmosphärenrand, Ringe, Monde; dunkle Planeten mit starkem Randlicht. Genutzt
+  in Titel, Landung, Rebirth und Planetenwahl.
+
+Effekte & Animation
+- Effekt-Bibliothek (src/app/02c_fxlib.js): weicher Punkt, Funke, Glanz 4/8,
+  Lichtfächer, Strahl, Ringe dünn/dick, Radar, 3 Blitze, Dampf/Rauch/Staub je 3,
+  Asche, Konfetti, Münze (8 Drehframes), Flamme (4), Feuer, Riss-Glühen, Sporen,
+  Schneeflocke. Partikel-Pool mit Grenzen 150 / 500 / 1500 (niedrig/mittel/hoch).
+- Platzieren 0,9 -> 1,06 -> 1,0 in 220 ms; Abriss mit Staubwolke und Münzen;
+  Verkauf als Münzfontäne mit "+X ET"; Scanner mit Wellenring, Radarschwenk und
+  gestaffelten Markern (40 ms) mit Überschwinger; Kamera-Dämpfung und weicher Zoom;
+  UI: Zähl-Puls, Drücken 0,96, Panels easeOutCubic 200 ms, Toasts mit Feder,
+  Banner-Schimmer, Seltenheitsrahmen im Kodex. Rebirth als längere Sequenz
+  (Start, Hyperraum-Tunnel, Austrittsblitz, planetenspezifische Ankunft).

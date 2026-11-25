@@ -1,6 +1,6 @@
 {
-  "updated": "2026-11-25T17:26:10.898Z",
-  "currentPhase": 16,
+  "updated": "2026-11-25T17:51:56.391Z",
+  "currentPhase": 20,
   "phases": [
     {
       "id": 1,
@@ -96,31 +96,31 @@
       "id": 16,
       "name": "Grafik 6: Figuren & Fahrzeuge",
       "detail": "Astronaut-Laufzyklus, 6 Alien-Spezies, Karawane, 3 Schiffsklassen",
-      "status": "active"
+      "status": "done"
     },
     {
       "id": 17,
       "name": "Grafik 7: Planeten",
       "detail": "Individuelle Planetenkugeln und Boden-/Prop-Sets",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 18,
       "name": "Grafik 8: Effekte",
       "detail": "Partikel-Bibliothek: Münzen, Radar, Funken, Rauch, Dampf, Glint, Blitze",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 19,
       "name": "Grafik 9: Animationen",
       "detail": "Zustandsmaschinen, Landesequenzen, Interaktions- und Kunden-Animationen",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 20,
       "name": "Grafik 10: Performance & QS",
       "detail": "Messungen, Unterscheidbarkeit, Kontrast, Vorher/Nachher-Bögen",
-      "status": "open"
+      "status": "active"
     }
   ],
   "log": [
@@ -191,6 +191,22 @@
     {
       "time": "2026-11-25T17:26:10.898Z",
       "text": "Figuren: Astronaut mit 8-Frame-Lauf, 6 Alien-Arten, Karawane, Landesequenzen – im Feinschliff."
+    },
+    {
+      "time": "2026-11-25T17:51:56.290Z",
+      "text": "Figuren & Fahrzeuge: Astronaut (8 Frames, Atmen, Winken, Jetpack), 6 Alien-Arten mit Stimmungen, Käfer-Karawane, Schiffe mit 4-Phasen-Landung."
+    },
+    {
+      "time": "2026-11-25T17:51:56.323Z",
+      "text": "Planeten: prozedurale Kugeln mit Terminator, Atmosphäre, Wolken, Ringen und Monden; Planetenwahl zeigt die Kugeln."
+    },
+    {
+      "time": "2026-11-25T17:51:56.355Z",
+      "text": "Effekte: Bibliothek mit über 20 Effekt-Sprites, Partikel-Pool, Münzfontäne, Scanner-Welle mit Radar."
+    },
+    {
+      "time": "2026-11-25T17:51:56.391Z",
+      "text": "Animationen: Platzier-Pop, Abriss, Ausbau-Überblendung, Kamera-Zoom-Easing, UI-Federn, längere Rebirth-Sequenz."
     }
   ]
 }

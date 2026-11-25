@@ -4,7 +4,7 @@
 // =====================================================================
 const DepositArt = {
   // static sprite (tile units: origin = bbox x0-M, y0-TOP)
-  M: 1.4, TOP: 2.2,
+  M: 1.6, TOP: 2.4,
   bbox(d) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const t of d.tiles) { if (t[0] < x0) x0 = t[0]; if (t[1] < y0) y0 = t[1]; if (t[0] > x1) x1 = t[0]; if (t[1] > y1) y1 = t[1]; }
@@ -45,13 +45,19 @@ const DepositArt = {
     const bed = d.tier === 0 ? Col.mix(groundDark, R.color, 0.3) : Col.mix(Col.shade(groundDark, -0.2), R.color, 0.22);
     x.fillStyle = bed; x.fill();
     // cracks radiating out
-    x.strokeStyle = Col.rgba(Col.shade(groundDark, -0.45), 0.7); x.lineCap = 'round';
+    x.lineCap = 'round'; x.lineJoin = 'round';
+    const crackCol = Col.shade(groundDark, -0.5);
     for (let i = 0; i < 3 + d.tiles.length; i++) {
       const t = d.tiles[i % d.tiles.length];
-      let px = t[0] + 0.5, py = t[1] + 0.5, a = rnd() * Math.PI * 2;
-      x.lineWidth = 0.05; x.beginPath(); x.moveTo(px, py);
-      for (let k = 0; k < 4; k++) { a += (rnd() - 0.5) * 0.9; px += Math.cos(a) * 0.3; py += Math.sin(a) * 0.3; x.lineTo(px, py); }
-      x.stroke();
+      let px = t[0] + 0.5 + (rnd() - 0.5) * 0.4, py = t[1] + 0.5 + (rnd() - 0.5) * 0.4, a = rnd() * Math.PI * 2;
+      for (let k = 0; k < 4; k++) {
+        const nx = px + Math.cos(a) * (0.22 - k * 0.03), ny = py + Math.sin(a) * (0.22 - k * 0.03);
+        x.strokeStyle = Col.rgba(crackCol, 0.6 - k * 0.13); x.lineWidth = 0.04 - k * 0.007;
+        x.beginPath(); x.moveTo(px, py); x.lineTo(nx, ny); x.stroke();
+        // lit lower edge of the crack
+        x.strokeStyle = Col.rgba('#ffffff', 0.1 - k * 0.02); x.lineWidth = 0.015; x.beginPath(); x.moveTo(px + 0.02, py + 0.025); x.lineTo(nx + 0.02, ny + 0.025); x.stroke();
+        px = nx; py = ny; a += (rnd() - 0.5) * 1.3;
+      }
     }
     // speckled bed texture
     x.save(); blob(); x.clip();
@@ -70,7 +76,10 @@ const DepositArt = {
     if (d.tier >= 3) {
       const cx = d.x + 0.5, cy = d.y + 0.7;
       const s = 0.55 + d.tier * 0.1;
-      for (let k = 0; k < 3 + (d.tier >= 5 ? 2 : 0); k++) DepositArt.spike(x, cx + (k - 1.5) * 0.24 * s, cy + (k % 2) * 0.1, 0.16 * s + 0.05, (0.7 + (k % 2 ? 0.25 : 0.55)) * s * 1.4, (k - 1.5) * 0.22, d.tier === 7 ? ItemArt.T('#e8f4ff') : T);
+      const n = 3 + (d.tier >= 5 ? 2 : 0), mid = (n - 1) / 2;
+      const order = []; for (let k = 0; k < n; k++) order.push(k);
+      order.sort((a, b) => Math.abs(b - mid) - Math.abs(a - mid)); // outer spikes first, tallest in front-centre last
+      for (const k of order) DepositArt.spike(x, cx + (k - mid) * 0.22 * s, cy + (k % 2) * 0.1, 0.16 * s + 0.05, (0.7 + (Math.abs(k - mid) < 0.6 ? 0.6 : k % 2 ? 0.2 : 0.4)) * s * 1.3, (k - mid) * 0.2, d.tier === 7 ? ItemArt.T('#e8f4ff') : T);
       if (d.tier >= 3) { x.globalCompositeOperation = 'lighter'; x.globalAlpha = 0.45; x.drawImage(Sprites.glow(d.tier === 7 ? '#ffffff' : DATA.TIERS[d.tier].color), cx - 0.9, cy - 1.4, 1.8, 1.8); x.globalAlpha = 1; x.globalCompositeOperation = 'source-over'; }
     }
     if (d.tier === 6) { // dark crater for the energy core

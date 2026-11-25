@@ -116,10 +116,16 @@ const ItemArt = {
   // size bucket in device pixels for a sprite of the given on-screen diameter
   sizeFor(px) { const B = [16, 20, 24, 32, 40, 48, 64, 96, 128, 192, 256]; for (const b of B) if (b >= px) return b; return 256; },
   // rot: -1, 0, 1 (±6° variants for belts); frame: animation frame for prismatic items
+  // outline: dark ring, light ring for very dark items or on very dark planet grounds (contrast >= 3:1)
+  ringColor(sp) {
+    const dark = ItemArt.lum(sp.c1) < 0.13 || sp.fam === 'darkmatter' || sp.fam === 'antimatter';
+    return dark || Render.darkGround ? '#c8d2eb' : Col.shade(sp.c1, -0.72);
+  },
   sprite(res, ref, sizePx, rot = 0, frame = 0) {
     const tier = DATA.RESOURCES[res].tier;
     const f = tier === 7 ? frame & 7 : 0;
-    return Art.cached('IT|' + res + '|' + ref + '|' + sizePx + '|' + rot + '|' + f, () => ItemArt.render(res, ref, sizePx, rot, f));
+    const dg = Render.darkGround ? 1 : 0;
+    return Art.cached('IT|' + res + '|' + ref + '|' + sizePx + '|' + rot + '|' + f + '|' + dg, () => ItemArt.render(res, ref, sizePx, rot, f));
   },
   render(res, ref, S, rot, frame) {
     const sp = ItemArt.spec(res);
@@ -140,10 +146,9 @@ const ItemArt = {
     x.beginPath(); x.ellipse(0.04, 0.9, floating ? 0.42 : 0.66, floating ? 0.1 : 0.16, 0, 0, Math.PI * 2); x.fill();
     x.restore();
     // outline ring from the object's alpha mask (dark, or light for very dark items)
-    const dark = ItemArt.lum(sp.c1) < 0.13 || sp.fam === 'darkmatter' || sp.fam === 'antimatter';
     const ring = Art.canvas(S, S), rx = ring.getContext('2d');
     rx.drawImage(O, 0, 0); rx.globalCompositeOperation = 'source-in';
-    rx.fillStyle = dark ? 'rgba(200,210,235,.85)' : Col.shade(sp.c1, -0.72); rx.fillRect(0, 0, S, S);
+    rx.fillStyle = ItemArt.ringColor(sp); rx.fillRect(0, 0, S, S);
     const w = Math.max(1, simple ? 1.6 : 1.3) * (S >= 96 ? S / 64 : 1);
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; x.drawImage(ring, Math.cos(a) * w, Math.sin(a) * w); }
     x.drawImage(O, 0, 0);
@@ -782,20 +787,32 @@ const ItemArt = {
       x.strokeStyle = '#ffffff'; x.lineWidth = 0.04; x.stroke();
     },
     starheart(x, sp, rnd, o) {
-      const c = Col.prism(o.t, 0), c2 = Col.prism(o.t, 120);
-      // heart-shaped star crystal
-      const pts = [];
-      for (let i = 0; i < 16; i++) {
-        const a = i / 16 * Math.PI * 2;
-        const hx = 16 * Math.pow(Math.sin(a), 3), hy = -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a));
-        const k = i % 2 ? 0.86 : 1.06;
-        pts.push([hx / 19 * 0.9 * k, hy / 19 * 0.9 * k + 0.05]);
+      // the core of a dying star: radiant 8-point star crystal with a pulsing heart inside
+      const pulse = 0.88 + 0.12 * Math.sin(o.t * Math.PI);
+      if (!o.simple) {
+        x.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 12; i++) {
+          const a = i * Math.PI / 6 + o.t * 0.15, len = (i % 2 ? 1.22 : 0.98) * pulse, w = 0.09;
+          const g = x.createLinearGradient(0, 0, Math.cos(a) * len, Math.sin(a) * len);
+          g.addColorStop(0, 'rgba(255,220,150,.75)'); g.addColorStop(1, 'rgba(255,140,80,0)');
+          x.fillStyle = g; x.beginPath(); x.moveTo(Math.cos(a + 1.57) * w, Math.sin(a + 1.57) * w); x.lineTo(Math.cos(a) * len, Math.sin(a) * len); x.lineTo(Math.cos(a - 1.57) * w, Math.sin(a - 1.57) * w); x.closePath(); x.fill();
+        }
+        x.globalCompositeOperation = 'source-over';
       }
-      Art.facets(x, pts, -0.05, -0.05, { hi: '#ffffff', base: c, lo: Col.shade(c2, -0.3), edge: Col.shade(c2, -0.6), rim: '#ffffff' }, { lw: o.lw * 0.6 });
-      x.globalCompositeOperation = 'lighter';
-      x.globalAlpha = 0.85; x.drawImage(Sprites.glow('#ffffff'), -0.4, -0.35, 0.8, 0.8); x.globalAlpha = 1;
-      x.globalCompositeOperation = 'source-over';
-      if (!o.simple) for (let i = 0; i < 5; i++) { const a = o.t * 0.8 + i * 1.256; Art.glint(x, Math.cos(a) * 0.95, Math.sin(a) * 0.5 + 0.05, 0.1, Col.prism(o.t, i * 70)); }
+      const pts = [];
+      for (let i = 0; i < 16; i++) { const a = -Math.PI / 2 + i * Math.PI / 8, r = i % 4 === 0 ? 0.95 : i % 2 === 0 ? 0.6 : 0.3; pts.push([Math.cos(a) * r, Math.sin(a) * r]); }
+      Art.facets(x, pts, -0.04, -0.06, { hi: '#ffffff', base: '#ffe6a8', lo: '#f0a050', edge: '#7a3a18', rim: '#ffffff' }, { lw: o.lw * 0.7 });
+      // heart-shaped core
+      const s = 0.3 * pulse;
+      const heart = () => { x.beginPath(); x.moveTo(0, s * 0.42); x.bezierCurveTo(-s * 1.15, -s * 0.3, -s * 0.5, -s * 1.1, 0, -s * 0.42); x.bezierCurveTo(s * 0.5, -s * 1.1, s * 1.15, -s * 0.3, 0, s * 0.42); x.closePath(); };
+      x.globalCompositeOperation = 'lighter'; x.globalAlpha = 0.9;
+      x.drawImage(Sprites.glow('#ff6a8a'), -0.5 * pulse, -0.55 * pulse, 1.0 * pulse, 1.0 * pulse);
+      x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
+      const hg = x.createRadialGradient(-s * 0.2, -s * 0.35, s * 0.05, 0, -s * 0.1, s * 1.1);
+      hg.addColorStop(0, '#ffffff'); hg.addColorStop(0.35, '#ff9ab0'); hg.addColorStop(1, '#e0284a');
+      x.fillStyle = hg; heart(); x.fill();
+      x.strokeStyle = '#8a1030'; x.lineWidth = o.lw * 0.5; x.stroke();
+      if (!o.simple) for (let i = 0; i < 4; i++) { const a = o.t * 0.9 + i * Math.PI / 2; Art.glint(x, Math.cos(a) * 0.98, Math.sin(a) * 0.42 + 0.05, 0.11, i % 2 ? '#ffe6a8' : '#ffffff'); }
     },
     prism(x, sp, rnd, o) {
       // triangular prism with a light beam split into a rainbow

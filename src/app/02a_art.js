@@ -53,18 +53,20 @@ const Art = {
   cache: new Map(),
   cacheBytes: 0,
   budget() { return App.touch ? 48e6 : 110e6; },
+  tick: 0, // advanced once per frame; hits only stamp the entry (no Map re-ordering on the hot path)
   cached(key, make) {
     let e = Art.cache.get(key);
-    if (e) { Art.cache.delete(key); Art.cache.set(key, e); return e.v; }
+    if (e) { e.t = Art.tick; return e.v; }
     const v = make();
     const c = v && (v.canvas || v);
     const bytes = c && c.width ? c.width * c.height * 4 : 1000;
-    e = { v, bytes };
+    e = { v, bytes, t: Art.tick };
     Art.cache.set(key, e);
     Art.cacheBytes += bytes;
     if (Art.cacheBytes > Art.budget()) {
-      for (const [k, old] of Art.cache) {
-        if (Art.cacheBytes <= Art.budget() * 0.8) break;
+      const arr = [...Art.cache.entries()].sort((a, b) => a[1].t - b[1].t);
+      for (const [k, old] of arr) {
+        if (Art.cacheBytes <= Art.budget() * 0.8 || old.t >= Art.tick) break;
         Art.cache.delete(k); Art.cacheBytes -= old.bytes;
       }
     }

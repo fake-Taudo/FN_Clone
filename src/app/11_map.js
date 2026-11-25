@@ -17,7 +17,7 @@ const MapView = {
       const S = CONFIG.chunkSize, C = CONFIG.fogCell, per = S / C, col = [0, 0, 0];
       for (let k = 0; k < per * per; k++) {
         Render.terrainColor(g.world, cx * S + (k % per) * C + C / 2, cy * S + Math.floor(k / per) * C + C / 2, col);
-        arr.push('rgb(' + (col[0] | 0) + ',' + (col[1] | 0) + ',' + (col[2] | 0) + ')');
+        arr.push([col[0] | 0, col[1] | 0, col[2] | 0]);
       }
       if (MapView.cellCache.size > 4000) MapView.cellCache.clear();
       MapView.cellCache.set(key, arr);
@@ -31,16 +31,28 @@ const MapView = {
     const S = CONFIG.chunkSize, C = CONFIG.fogCell, per = S / C;
     const x0 = cx - W / 2 / s, y0 = cy - H / 2 / s, x1 = cx + W / 2 / s, y1 = cy + H / 2 / s;
     const tx = x => (x - cx) * s + W / 2, ty = y => (y - cy) * s + H / 2;
-    const cs = C * s + 0.6;
-    for (let ccy = Math.floor(y0 / S); ccy <= Math.floor(y1 / S); ccy++) for (let ccx = Math.floor(x0 / S); ccx <= Math.floor(x1 / S); ccx++) {
+    // terrain: one pixel per fog cell, scaled up with smoothing (soft fog edge, no blocky cells)
+    const gx0 = Math.floor(x0 / C) - 1, gy0 = Math.floor(y0 / C) - 1;
+    const gw = Math.ceil(x1 / C) - gx0 + 2, gh = Math.ceil(y1 / C) - gy0 + 2;
+    let oc = MapView.oc;
+    if (!oc || oc.width < gw || oc.height < gh) { oc = MapView.oc = document.createElement('canvas'); oc.width = Math.max(gw, 64); oc.height = Math.max(gh, 64); }
+    const ox = oc.getContext('2d');
+    const img = ox.createImageData(gw, gh), dd = img.data;
+    for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+      const wx = (gx0 + i) * C, wy = (gy0 + j) * C;
+      const ccx = Math.floor(wx / S), ccy = Math.floor(wy / S);
       const m = g.world.discovered.get(U.chunkKey(ccx, ccy));
       if (!m) continue;
-      for (let i = 0; i < per * per; i++) {
-        if (!(m & (1 << i))) continue;
-        ctx.fillStyle = MapView.cellColor(g, ccx, ccy, i);
-        ctx.fillRect(tx(ccx * S + (i % per) * C), ty(ccy * S + Math.floor(i / per) * C), cs, cs);
-      }
+      const li = ((wx - ccx * S) / C) + ((wy - ccy * S) / C) * per;
+      if (!(m & (1 << li))) continue;
+      const c = MapView.cellColor(g, ccx, ccy, li), o = (j * gw + i) * 4;
+      dd[o] = c[0]; dd[o + 1] = c[1]; dd[o + 2] = c[2]; dd[o + 3] = 255;
     }
+    ox.clearRect(0, 0, oc.width, oc.height);
+    ox.putImageData(img, 0, 0);
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(oc, 0, 0, gw, gh, tx(gx0 * C), ty(gy0 * C), gw * C * s, gh * C * s);
+    ctx.restore();
     // buildings
     for (const b of g.buildings.values()) {
       const r = b.type === 'bridge' ? Grid.rect(b) : b;

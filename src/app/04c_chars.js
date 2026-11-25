@@ -440,7 +440,7 @@ const CharArt = {
     if (!c._bubAt) c._bubAt = App.now;
     const age = (App.now - c._bubAt) / 260;
     const pop = age < 1 ? Art.ease.outBack(Math.max(0, age)) : 1;
-    const s = Math.max(0.55, 22 / App.cam.zoom);
+    const s = Math.max(0.6, 27 / App.cam.zoom);
     ctx.save(); ctx.translate(x, y); ctx.scale(pop, pop);
     const bw = s * 2.3, bh = s * 1.15;
     // body

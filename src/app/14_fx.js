@@ -25,18 +25,7 @@ const FX = {
       }
     }
   },
-  drawPlanet(ctx, cx, cy, r, planet, t) {
-    const gr = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.35, r * 0.1, cx, cy, r);
-    gr.addColorStop(0, planet.ground[2]); gr.addColorStop(0.55, planet.ground[1]); gr.addColorStop(1, planet.ground[0]);
-    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
-    ctx.fillStyle = Col.rgba(planet.rock, 0.35);
-    for (let i = 0; i < 9; i++) { const a = i * 2.4 + t * 0.03, d = (i * 0.37 % 1) * r * 0.8; ctx.beginPath(); ctx.ellipse(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.6, r * (0.08 + (i % 3) * 0.04), r * 0.05, a, 0, Math.PI * 2); ctx.fill(); }
-    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(cx + r * 0.45, cy + r * 0.3, r * 1.05, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-    ctx.strokeStyle = Col.rgba(planet.accent, 0.5); ctx.lineWidth = r * 0.04;
-    ctx.beginPath(); ctx.arc(cx, cy, r * 1.02, 0, Math.PI * 2); ctx.stroke();
-  },
+  drawPlanet(ctx, cx, cy, r, planet, t, o) { PlanetArt.draw(ctx, cx, cy, r, planet, t, o); },
 
   // ---------------- title screen ----------------
   titleLoop: null,
@@ -66,7 +55,7 @@ const FX = {
     const cv = $('#fx-canvas');
     const ctx = cv.getContext('2d');
     const text = scr.querySelector('.fx-text');
-    const dur = App.settings.reducedFx ? 1800 : kind === 'rebirth' ? 6500 : 4800;
+    const dur = App.settings.reducedFx ? 1800 : kind === 'rebirth' ? 8500 : 4800;
     let start = null, done = false, raf;
     const finish = () => { if (done) return; done = true; cancelAnimationFrame(raf); scr.classList.add('hidden'); onDone(); };
     scr.querySelector('.fx-skip').onclick = finish;
@@ -90,48 +79,100 @@ const FX = {
     FX.drawStars(ctx, W, H, t * 5);
     const r = Math.max(W, H) * (0.6 + t * 1.6);
     FX.drawPlanet(ctx, W / 2, H + r * (0.75 - t * 0.25), r, planet, t * 5);
-    // lander
-    const y = H * (0.05 + Math.min(1, t * 1.15) * 0.62);
+    // lander: shuttle with braking flame and extending legs
+    const y = H * (0.05 + Art.ease.outCubic(Math.min(1, t * 1.15)) * 0.62);
     const x = W / 2;
+    const s = Math.min(W, H) * 0.16;
     ctx.save(); ctx.translate(x, y);
-    const s = Math.min(W, H) * 0.08;
-    if (t < 0.85) {
+    if (t < 0.88) {
       ctx.globalCompositeOperation = 'lighter';
-      ctx.drawImage(Sprites.glow('#ffb04a'), -s * 0.6, s * 0.3, s * 1.2, s * (1.6 + Math.random() * 0.4));
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(FxLib.tinted('flame', Math.floor(t * 90) & 3, '#ffb04a'), -s * 0.12, s * 0.2, s * 0.24, s * (0.6 + (t > 0.55 ? 0.6 : 0.2)));
+      ctx.globalAlpha = 0.6; ctx.drawImage(FxLib.tinted('soft', 0, '#ffb04a'), -s * 0.5, s * 0.1, s, s);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     }
-    ctx.fillStyle = '#e8ebf0'; ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(s * 0.6, s * 0.2); ctx.lineTo(s * 0.4, s * 0.5); ctx.lineTo(-s * 0.4, s * 0.5); ctx.lineTo(-s * 0.6, s * 0.2); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = planet.accent; ctx.fillRect(-s * 0.3, -s * 0.05, s * 0.6, s * 0.15);
-    ctx.strokeStyle = '#9aa0aa'; ctx.lineWidth = s * 0.08; ctx.beginPath(); ctx.moveTo(-s * 0.4, s * 0.5); ctx.lineTo(-s * 0.7, s * 0.85); ctx.moveTo(s * 0.4, s * 0.5); ctx.lineTo(s * 0.7, s * 0.85); ctx.stroke();
+    const legs = U.clamp((t - 0.55) / 0.25, 0, 1);
+    ctx.strokeStyle = '#3a3f48'; ctx.lineWidth = s * 0.05; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-s * 0.3, s * 0.15); ctx.lineTo(-s * (0.3 + legs * 0.12), s * (0.15 + legs * 0.25)); ctx.moveTo(s * 0.3, s * 0.15); ctx.lineTo(s * (0.3 + legs * 0.12), s * (0.15 + legs * 0.25)); ctx.stroke();
+    ctx.drawImage(CharArt.shipSprite(2, Art.bucket(s, 128)), -s / 2, -s / 2, s, s);
     ctx.restore();
     if (t > 0.72) { ctx.fillStyle = Col.rgba(planet.particle, Math.min(0.5, (t - 0.72) * 2)); ctx.beginPath(); ctx.ellipse(x, y + s, s * (2 + (t - 0.72) * 14), s * 0.6, 0, 0, Math.PI * 2); ctx.fill(); }
     text.innerHTML = 'Landung auf ' + esc(planet.name) + '<small>' + esc(planet.desc) + '</small>';
     text.style.opacity = String(U.clamp(t * 3 - 0.3, 0, 1));
   },
+  // longer cinematic rebirth: liftoff, hyperspace tunnel, exit flash, planet-specific arrival
   drawRebirth(ctx, W, H, t, planet, text) {
     const old = DATA.planet(App.g ? App.g.run.planet : 1);
+    const M = Math.min(W, H), E = Art.ease;
+    const ship = (x, y, s, thrust, rot = 0) => {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+      if (thrust > 0) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(FxLib.tinted('flame', Math.floor(t * 120) & 3, '#ffb04a'), -s * 0.14, s * 0.25, s * 0.28, s * (0.5 + thrust * 0.8));
+        ctx.globalAlpha = 0.7; ctx.drawImage(FxLib.tinted('soft', 0, '#7fd3ff'), -s * 0.5, s * 0.05, s, s);
+        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.drawImage(CharArt.shipSprite(2, Art.bucket(s / 2.2 * 2, 128)), -s / 2, -s / 2, s, s);
+      ctx.restore();
+    };
+    const hashf = (i, k) => (RNG.hash(i, k, 4242) & 0xffff) / 65535;
     if (t < 0.3) {
       const k = t / 0.3;
-      FX.drawStars(ctx, W, H, t * 5);
-      const r = Math.max(W, H) * (1.2 - k * 1.05);
-      FX.drawPlanet(ctx, W / 2, H * 0.5 + r * 0.6 * (1 - k) + k * H * 0.2, Math.max(20, r), old, t * 5);
-      const sy = H * (0.6 - k * 0.7);
-      ctx.fillStyle = '#e8ebf0'; ctx.beginPath(); ctx.moveTo(W / 2, sy - 30); ctx.lineTo(W / 2 + 16, sy + 12); ctx.lineTo(W / 2 - 16, sy + 12); ctx.closePath(); ctx.fill();
-      ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(Sprites.glow('#7fd3ff'), W / 2 - 20, sy + 8, 40, 60); ctx.globalCompositeOperation = 'source-over';
-      text.innerHTML = 'Start von ' + esc(old.name);
-    } else if (t < 0.7) {
-      const k = (t - 0.3) / 0.4;
-      FX.drawStars(ctx, W, H, t * 10, 0, 0.15 + Math.sin(k * Math.PI) * 0.9);
-      ctx.fillStyle = 'rgba(120,160,255,' + (Math.sin(k * Math.PI) * 0.18) + ')'; ctx.fillRect(0, 0, W, H);
+      FX.drawStars(ctx, W, H, t * 5, 0, Math.max(0, k - 0.6) * 0.6);
+      const r = Math.max(W, H) * (1.1 - E.inCubic(k) * 1.0);
+      FX.drawPlanet(ctx, W / 2, H * 0.55 + r * 0.75 + E.inCubic(k) * H * 0.1, Math.max(12, r), old, t * 5);
+      const shake = k < 0.15 ? (Math.random() - 0.5) * 6 * (1 - k / 0.15) : 0;
+      const sy = H * (0.72 - E.inOutCubic(k) * 0.32);
+      // launch smoke ring
+      if (k < 0.35) { ctx.fillStyle = Col.rgba(old.particle, 0.5 * (1 - k / 0.35)); ctx.beginPath(); ctx.ellipse(W / 2, H * 0.8, M * (0.08 + k * 0.6), M * (0.02 + k * 0.1), 0, 0, Math.PI * 2); ctx.fill(); }
+      ship(W / 2 + shake, sy, M * 0.16 * (1 - k * 0.35), 0.6 + k * 0.6);
+      text.innerHTML = 'Start von ' + esc(old.name) + '<small>Der Außenposten bleibt als Legende zurück</small>';
+      text.style.opacity = String(U.clamp(k * 4, 0, 1));
+    } else if (t < 0.64) {
+      const k = (t - 0.3) / 0.34;
+      const bell = Math.sin(k * Math.PI);
+      FX.drawStars(ctx, W, H, t * 10, 0, 0.2 + bell * 1.1);
+      // tunnel rings rushing outwards in the colour of the destination
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 9; i++) {
+        const p = ((k * 3.2 + i / 9) % 1), rr = M * (0.04 + p * p * 1.3);
+        ctx.strokeStyle = Col.rgba(i % 2 ? planet.accent : '#7fa8ff', (1 - p) * 0.5 * bell);
+        ctx.lineWidth = 2 + p * 10;
+        ctx.beginPath(); ctx.ellipse(W / 2, H / 2, rr, rr * 0.82, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalAlpha = bell * 0.55; ctx.drawImage(FxLib.tinted('soft', 0, planet.accent), W / 2 - M * 0.25, H / 2 - M * 0.25, M * 0.5, M * 0.5);
+      ctx.restore();
+      ctx.fillStyle = 'rgba(120,160,255,' + (bell * 0.12).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
+      ship(W / 2 + Math.sin(t * 40) * 1.5, H * 0.4, M * 0.1, 1.2);
       text.innerHTML = 'Hyperraum<small>Rebirth-Punkte werden gutgeschrieben</small>';
+      text.style.opacity = '1';
     } else {
-      const k = (t - 0.7) / 0.3;
+      const k = (t - 0.64) / 0.36;
       FX.drawStars(ctx, W, H, t * 5);
-      const r = Math.max(W, H) * (0.1 + k * 0.9);
-      FX.drawPlanet(ctx, W / 2, H / 2 + r * 0.6 * k, r, planet, t * 5);
+      const r = Math.max(W, H) * (0.03 + E.outCubic(k) * 0.62);
+      const cy = H * 0.5 + r * 0.55 * E.outCubic(k);
+      FX.drawPlanet(ctx, W / 2, cy, r, planet, t * 8);
+      // planet-specific arrival particles
+      const st = PlanetArt.spec(planet).style;
+      ctx.save();
+      for (let i = 0; i < 70; i++) {
+        const h1 = hashf(i, 1), h2 = hashf(i, 2), h3 = hashf(i, 3);
+        let x = h1 * W, y, a = Math.min(1, k * 3) * (1 - Math.max(0, k - 0.85) / 0.15);
+        if (st === 'ice') { y = ((h2 + k * (0.3 + h3 * 0.4)) % 1) * H; x += Math.sin(k * 8 + i) * 12; ctx.globalAlpha = a * 0.85; ctx.drawImage(FxLib.get('snow', 0), x - 5, y - 5, 10, 10); continue; }
+        if (st === 'lava') { y = H - ((h2 + k * (0.4 + h3 * 0.5)) % 1) * H; ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * 0.9; ctx.drawImage(FxLib.tinted('soft', 0, '#ff7a2a'), x - 4, y - 4, 8, 8); continue; }
+        if (st === 'jungle') { y = ((h2 - k * 0.2 + 1) % 1) * H; ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * (0.5 + 0.5 * Math.sin(k * 20 + i)); ctx.drawImage(FxLib.tinted('spore', 0, planet.deco), x - 6, y - 6, 12, 12); continue; }
+        if (st === 'crystal' || st === 'patina') { y = h2 * H; ctx.globalCompositeOperation = 'lighter'; const tw = Math.max(0, Math.sin(k * 14 + i * 1.7)); ctx.globalAlpha = a * tw; ctx.drawImage(FxLib.tinted('glint4', 0, st === 'crystal' ? '#ffffff' : planet.accent), x - 9, y - 9, 18, 18); continue; }
+        if (st === 'dark') { const ang = h1 * 6.28 + k * 2, rad = M * (0.2 + h2 * 0.5) * (1 - k * 0.3); x = W / 2 + Math.cos(ang) * rad; y = cy + Math.sin(ang) * rad * 0.4; ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * 0.8; ctx.drawImage(FxLib.tinted('soft', 0, planet.accent), x - 4, y - 4, 8, 8); continue; }
+        if (st === 'gas') { y = h2 * H; x = (h1 * W + k * W * (0.2 + h3 * 0.3)) % W; ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * 0.7; ctx.drawImage(FxLib.tinted('soft', 0, i % 2 ? planet.accent : planet.deco), x - 5, y - 5, 10, 10); continue; }
+        y = h2 * H; x = (h1 * W + k * W * 0.35 * (0.5 + h3)) % W; ctx.globalAlpha = a * 0.55; ctx.drawImage(FxLib.tinted('dust', i % 3, planet.particle), x - 8, y - 8, 16, 16);
+      }
+      ctx.restore();
+      // exit flash
+      if (k < 0.15) { ctx.fillStyle = 'rgba(255,255,255,' + (1 - k / 0.15).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H); }
+      const sk = E.inOutCubic(Math.min(1, k * 1.2));
+      ship(W / 2 + (1 - sk) * M * 0.1, H * (0.3 + sk * 0.25), M * 0.1 * (1 - sk * 0.75), 0.4 * (1 - sk), Math.PI);
       text.innerHTML = 'Ankunft: ' + esc(planet.name) + '<small>' + esc(planet.desc) + (planet.special ? ' · ' + esc(DATA.PLANET_SPECIALS[planet.special].desc) : '') + '</small>';
+      text.style.opacity = String(U.clamp(k * 3, 0, 1));
     }
-    text.style.opacity = '1';
   },
 
   // ---------------- dialogs ----------------

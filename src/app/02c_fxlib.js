@@ -4,6 +4,7 @@
 // =====================================================================
 const FxLib = {
   S: 64,
+  VARIANTS: { soft: 1, spark: 1, glint4: 1, glint8: 1, fan: 1, beam: 1, ring: 1, ringThick: 1, impact: 1, radar: 1, bolt: 3, steam: 3, smoke: 3, dust: 3, ash: 1, confetti: 1, spore: 1, snow: 1, coin: 8, flame: 4, fire: 1, crack: 1 },
   get(name, v = 0) { return Art.cached('FX|' + name + '|' + v, () => FxLib.make(name, v)); },
   make(name, v) {
     const big = name === 'fan' || name === 'radar' || name === 'ring' || name === 'ringThick' || name === 'beam' || name === 'impact';

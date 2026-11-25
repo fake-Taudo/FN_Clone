@@ -52,6 +52,9 @@ const UI = {
     const g = App.g;
     const target = g.run.money;
     const diff = target - UI.moneyShown;
+    if (diff > Math.max(1, Math.abs(UI.moneyShown) * 0.02) && App.now - (UI.bumpAt || 0) > 400 && !App.settings.reducedFx) {
+      UI.bumpAt = App.now; const el = $('#money'); el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+    }
     UI.moneyShown = Math.abs(diff) < 0.01 || !isFinite(UI.moneyShown) ? target : UI.moneyShown + diff * Math.min(1, dt * 8);
     const now = performance.now();
     $('#money').textContent = Fmt.num(UI.moneyShown) + ' ' + CURRENCY_SHORT;

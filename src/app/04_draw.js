@@ -7,7 +7,13 @@ const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 const GRADE_COLORS = ['#8b939c', '#f2c84b', '#4aa8ff', '#ff4fd8'];
 
 const Draw = {
-  tm: 0, dt: 0.016,
+  tm: 0, dt: 0.016, _tw: [],
+  bubbles: [], // queued speech bubbles (drawn as UI after the night grade)
+  flushBubbles(ctx) {
+    const B = Draw.bubbles;
+    for (let i = 0; i < B.length; i += 3) CharArt.bubble(ctx, B[i], B[i + 1], B[i + 2], Draw.tm);
+    B.length = 0;
+  },
   arrow(ctx, cx, cy, dir, s, color) {
     ctx.save(); ctx.translate(cx, cy); ctx.rotate(dir * Math.PI / 2);
     ctx.beginPath(); ctx.moveTo(s, 0); ctx.lineTo(-s * 0.6, -s * 0.75); ctx.lineTo(-s * 0.25, 0); ctx.lineTo(-s * 0.6, s * 0.75); ctx.closePath();
@@ -22,7 +28,7 @@ const Draw = {
     const fs = Math.max(0.24, 11 / App.cam.zoom), s = fs * 1.35;
     const txt = ROMAN[b.level];
     ctx.font = '800 ' + fs + 'px system-ui';
-    const tw = ctx.measureText(txt).width + fs * 0.7;
+    const tw = (Draw._tw[b.level] || (Draw._tw[b.level] = ctx.measureText(txt).width / fs)) * fs + fs * 0.7;
     const vt = VT(b.level);
     ctx.fillStyle = ['rgba(20,22,28,.78)', 'rgba(30,40,56,.82)', 'rgba(40,32,16,.85)', 'rgba(60,46,10,.9)'][vt];
     Art.rrect(ctx, x + 0.08, y + b.h - s - 0.06, tw, s, s / 2); ctx.fill();
@@ -105,7 +111,7 @@ const Draw = {
       else { BuildingArt.drawBody(ctx, b, x + jx, y + jy, b._xf.from, extra, 1 - k); BuildingArt.drawBody(ctx, b, x + jx, y + jy, vt, extra, k); }
     } else BuildingArt.drawBody(ctx, b, x + jx, y + jy, vt, extra);
     const D = Draw.D[b.type] || (REFINERY_LEVEL[b.type] ? Draw.D.refinery : null);
-    if (D && (App.cam.zoom >= 10 || b.id < 0)) D(ctx, g, b, x + jx, y + jy, Draw.tm, vt);
+    if (D && (App.cam.zoom >= 13 || b.id < 0)) D(ctx, g, b, x + jx, y + jy, Draw.tm, vt);
     // upgrade glow pulse
     if (b._up && fx) {
       const k = (now - b._up) / 600;
@@ -356,7 +362,7 @@ const Draw = {
     },
     dock(ctx, g, b, x, y, tm, vt) {
       const W = b.w, H = b.h;
-      const gh = 3.0 + vt * 0.2, beamY = y + 1.6 - BA_E - gh * Art.V;
+      const gh = 3.0 + vt * 0.2, beamY = y + BuildingArt.GEO.dockGantryY - BA_E - gh * Art.V;
       const tx = x + W / 2 + Math.sin(tm * 0.35 + b.id) * (W / 2 - 1.6);
       Art.box(ctx, tx - 0.35, beamY - 0.06, 0.7, 0.36, 0.25, Art.pal('anth'), { r: 0.03, lw: 0.02 });
       const hook = 1.6 + Math.sin(tm * 0.7) * 0.5;
@@ -472,7 +478,7 @@ const Draw = {
       if (c.tier === 0) Draw.alien(ctx, rx, ry, c, tm, (px - c.sx) * (c.state === 'out' ? -1 : 1) >= 0 ? 1 : -1);
       else if (c.tier === 1) CharArt.caravan(ctx, rx, ry, c, tm, Math.atan2(py - c.sy, px - c.sx) + (c.state === 'out' ? Math.PI : 0), c.state !== 'wait');
       else CharArt.ship(ctx, rx, ry, c, tm, b);
-      if (c.state === 'wait' && App.cam.zoom >= 14) CharArt.bubble(ctx, rx, ry - (c.tier === 0 ? 1.55 : c.tier === 1 ? 1.6 : [0, 0, 2.2, 3.4, 5.6][c.tier] * 0.55), c, tm);
+      if (c.state === 'wait' && App.cam.zoom >= 13) Draw.bubbles.push(rx, ry - (c.tier === 0 ? 1.6 : c.tier === 1 ? 1.65 : [0, 0, 2.2, 3.4, 5.6][c.tier] * 0.55), c);
       else c._bubAt = 0;
     }
   },

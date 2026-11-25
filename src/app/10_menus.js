@@ -67,7 +67,8 @@ const Menus = {
     const grid = h('div', { class: 'codex-grid' });
     for (const R of DATA.RESOURCES) {
       const st = cx.state[R.id];
-      const cell = h('button', { class: 'codex-cell' + (st < 2 ? ' unknown' : ''), style: { borderColor: st >= 1 ? Col.rgba(DATA.TIERS[R.tier].color, 0.5) : '' } });
+      const cell = h('button', { class: 'codex-cell' + (st < 2 ? ' unknown' : '') + (st >= 1 ? ' rar rar-' + R.tier : '') });
+      if (st >= 1) cell.style.setProperty('--rc', DATA.TIERS[R.tier].color);
       cell.append(Sprites.itemCanvas(R.id, 0, 44, st < 1));
       cell.append(h('div', { class: 'n', text: st >= 1 ? R.name : '???' }));
       cell.addEventListener('click', () => { Menus.codexSel = R.id; Menus.codexDetail(detail); Audio2.play('click'); detail.scrollIntoView({ block: 'nearest' }); });
@@ -254,7 +255,8 @@ const Menus = {
     for (let k = 1; k <= avail; k++) {
       const pl = DATA.planet(k);
       const btn = h('button', { class: 'planet-btn' + (k === Menus.rbPlanet ? ' on' : '') });
-      btn.innerHTML = '<span class="dot" style="background:' + pl.ground[1] + ';box-shadow:0 0 0 2px ' + pl.accent + '"></span><b>' + k + ' · ' + esc(pl.name) + '</b><br><span class="muted">' + (pl.special ? esc(DATA.PLANET_SPECIALS[pl.special].desc) : 'Ausgeglichen') + '</span>' + (k > g.meta.maxPlanet ? '<br><span style="color:var(--good)">Neu!</span>' : '') + '<br><span class="muted">Schwelle ' + Fmt.money(Progression.threshold(k)) + '</span>';
+      btn.innerHTML = '<span class="pico"></span><b>' + k + ' · ' + esc(pl.name) + '</b><br><span class="muted">' + (pl.special ? esc(DATA.PLANET_SPECIALS[pl.special].desc) : 'Ausgeglichen') + '</span>' + (k > g.meta.maxPlanet ? '<br><span style="color:var(--good)">Neu!</span>' : '') + '<br><span class="muted">Schwelle ' + Fmt.money(Progression.threshold(k)) + '</span>';
+      btn.querySelector('.pico').append(PlanetArt.icon(pl, 46));
       btn.addEventListener('click', () => { Menus.rbPlanet = k; el.dataset.key = ''; Menus.rebirthLive(el); });
       list.append(btn);
     }

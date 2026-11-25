@@ -123,6 +123,7 @@ const BuildingArt = {
     servo() { return { cx: 1.0, cy: 1.0 - BA_E - 0.45 * Art.V + 0.02 }; },
     charger(vt) { const V = Art.V, coils = [[0.5, 0.7], [1.5, 0.7], [1.0, 1.45]]; const ch = 1.0 + vt * 0.1; return { coils: coils.map(c => [c[0], c[1] - BA_E - 0.35 * V - ch * V]), rod: [1.0, 1.05 - BA_E - 0.35 * V - (1.5 + vt * 0.15) * V], ch }; },
     lab(vt) { const V = Art.V, by = 1.55 - BA_E, bh = 1.0 + vt * 0.08, ty = by - bh * V; return { by, bh, ty, dish: [3.05, ty + 0.25 - 0.9], holo: [1.4, ty + 0.2 - 1.3], win: [0.55, by + 2.1 - bh * V + 0.12] }; },
+    dockGantryY: 7.75,
     pads(type, W) {
       if (type === 'port') return [[1.95, 3.9], [5.05, 3.9]];
       return [[W / 2, W / 2 + 0.2]];
@@ -311,8 +312,19 @@ const BuildingArt = {
       // observatory dome on the roof
       const dt = vt === 3 ? Art.pal('white') : Art.tones('#e6edf8');
       Art.cyl(x, 1.4, G.ty + 1.15, 0.85, 0.45, 0.25, Art.tones('#8a96b0'));
-      Art.dome(x, 1.4, G.ty + 1.15 - 0.25 * V, 0.85, 0.45, 1.5, dt);
-      x.fillStyle = '#1a2230'; x.beginPath(); x.moveTo(1.3, G.ty + 1.0 - 0.25 * V); x.lineTo(1.25, G.ty + 0.15); x.lineTo(1.45, G.ty + 0.12); x.lineTo(1.5, G.ty + 1.0 - 0.25 * V); x.closePath(); x.fill();
+      const dcy = G.ty + 1.15 - 0.25 * V, dtop = dcy - 1.5 * V * 0.9;
+      Art.dome(x, 1.4, dcy, 0.85, 0.45, 1.5, dt);
+      // observation slit following the dome curvature, telescope peeking out
+      x.save(); x.beginPath(); x.ellipse(1.4, dcy, 0.85, 0.45, 0, 0, Math.PI); x.bezierCurveTo(1.4 - 0.85, dcy - 1.5 * V * 1.2, 1.4 + 0.85, dcy - 1.5 * V * 1.2, 1.4 + 0.85, dcy); x.clip();
+      const sg = x.createLinearGradient(1.25, 0, 1.55, 0); sg.addColorStop(0, '#0e141e'); sg.addColorStop(0.5, '#243044'); sg.addColorStop(1, '#0e141e');
+      x.fillStyle = sg; x.beginPath(); x.moveTo(1.27, dcy + 0.45); x.quadraticCurveTo(1.2, dtop + 0.3, 1.33, dtop - 0.1); x.lineTo(1.5, dtop - 0.1); x.quadraticCurveTo(1.62, dtop + 0.3, 1.55, dcy + 0.45); x.closePath(); x.fill();
+      x.strokeStyle = 'rgba(255,255,255,.5)'; x.lineWidth = 0.02; x.stroke();
+      x.restore();
+      x.save(); x.translate(1.41, dtop + 0.32); x.rotate(-0.5);
+      Art.box(x, -0.08, -0.32, 0.16, 0.42, 0.12, Art.pal('steel'), { r: 0.04, lw: 0.02 });
+      x.fillStyle = '#7fd3ff'; x.beginPath(); x.ellipse(0, -0.38, 0.07, 0.035, 0, 0, Math.PI * 2); x.fill();
+      x.restore();
+      for (let i = 0; i < 5; i++) { const a = Math.PI * (0.15 + i * 0.175); x.strokeStyle = 'rgba(80,90,110,.35)'; x.lineWidth = 0.015; x.beginPath(); x.moveTo(1.4 + Math.cos(a) * 0.85, dcy + Math.sin(a) * 0.45); x.quadraticCurveTo(1.4 + Math.cos(a) * 0.6, dcy - 0.55, 1.4, dtop + 0.05); x.stroke(); }
       // roof units
       BuildingArt.vent(x, 2.5, G.ty + 1.25, 0.6, 0.35);
       // dish mast
@@ -455,6 +467,11 @@ const BuildingArt = {
       x.fillStyle = vt === 3 ? '#4a5260' : '#2c3038'; Art.rrect(x, bx0, by0 - BA_E, bw, bh, 0.2); x.fill();
       x.strokeStyle = 'rgba(255,255,255,.12)'; x.lineWidth = 0.02; x.beginPath(); for (let i = 1; i < bw; i++) { x.moveTo(bx0 + i, by0 - BA_E + 0.1); x.lineTo(bx0 + i, by0 - BA_E + bh - 0.1); } x.stroke();
       Art.hazard(x, bx0, by0 - BA_E, bw, 0.14); Art.hazard(x, bx0, by0 - BA_E + bh - 0.14, bw, 0.14);
+      // big landing target in the bay
+      const bcx = bx0 + bw / 2, bcy = by0 - BA_E + bh / 2;
+      x.strokeStyle = 'rgba(242,194,48,.9)'; x.lineWidth = 0.1; x.beginPath(); x.ellipse(bcx, bcy, bw * 0.36, bh * 0.36, 0, 0, Math.PI * 2); x.stroke();
+      x.strokeStyle = 'rgba(245,245,240,.6)'; x.lineWidth = 0.05; x.beginPath(); x.moveTo(bcx - bw * 0.45, bcy); x.lineTo(bcx + bw * 0.45, bcy); x.moveTo(bcx, bcy - bh * 0.45); x.lineTo(bcx, bcy + bh * 0.45); x.stroke();
+      for (let k = 0; k < 4; k++) { x.save(); x.translate(bcx, bcy); x.rotate(k * Math.PI / 2); x.fillStyle = 'rgba(242,194,48,.85)'; x.beginPath(); x.moveTo(-0.3, -bh * 0.44); x.lineTo(0, -bh * 0.3); x.lineTo(0.3, -bh * 0.44); x.closePath(); x.fill(); x.restore(); }
       // landing guide lights sockets
       for (let i = 0; i < 6; i++) { for (const sx of [bx0 + 0.3, bx0 + bw - 0.3]) { x.fillStyle = '#1a1c20'; x.beginPath(); x.arc(sx, by0 - BA_E + 0.5 + i * (bh - 1) / 5, 0.07, 0, Math.PI * 2); x.fill(); } }
       // container stacks left and right
@@ -469,7 +486,7 @@ const BuildingArt = {
       Art.box(x, 0.3, 0.35 - BA_E, 1.6, 1.0, 1.0, m.frame, { r: 0.05 });
       for (let i = 0; i < 3; i++) Art.window(x, 0.45 + i * 0.5, 0.35 - BA_E + 1.0 - 1.0 * V + 0.12, 0.3, 0.25, false);
       // gantry: legs and beam across the bay (trolley animated)
-      const gy = 1.6, gh = 3.0 + vt * 0.2, beamY = gy - BA_E - gh * V;
+      const gy = BuildingArt.GEO.dockGantryY, gh = 3.0 + vt * 0.2, beamY = gy - BA_E - gh * V;
       const gt = vt === 3 ? Art.pal('white') : Art.pal('cloth2');
       for (const lx of [1.05, W - 1.05]) BuildingArt.mast(x, lx, gy - BA_E, gh * V, 0.18, gt);
       Art.box(x, 0.85, beamY - 0.02, W - 1.7, 0.28, 0.3, gt, { r: 0.02 });
@@ -559,8 +576,10 @@ const BuildingArt = {
       const heads = lv >= 2 ? [[0.72, hy + 0.08], [0.28, hy + 0.08]] : [[0.72, hy + 0.08]];
       if (lv >= 2) { x.beginPath(); x.moveTo(0.5, hy + 0.12); x.quadraticCurveTo(0.5, hy - 0.02, 0.3, hy + 0.02); x.stroke(); }
       for (const [lx, ly] of heads) {
-        x.fillStyle = '#2a2f38'; x.beginPath(); x.moveTo(lx - 0.13, ly); x.lineTo(lx + 0.13, ly); x.lineTo(lx + 0.08, ly - 0.1); x.lineTo(lx - 0.08, ly - 0.1); x.closePath(); x.fill();
-        x.fillStyle = lv >= 2 ? '#d8f0ff' : '#ffe8a8'; x.beginPath(); x.ellipse(lx, ly + 0.03, 0.1, 0.05, 0, 0, Math.PI * 2); x.fill();
+        if (lv >= 3) { BuildingArt.sphere(x, lx, ly + 0.02, 0.13, Art.tones('#e8f6ff')); x.fillStyle = '#2a2f38'; x.fillRect(lx - 0.07, ly - 0.14, 0.14, 0.05); continue; }
+        x.fillStyle = '#2a2f38'; x.beginPath(); x.moveTo(lx - 0.17, ly); x.lineTo(lx + 0.17, ly); x.lineTo(lx + 0.1, ly - 0.14); x.lineTo(lx - 0.1, ly - 0.14); x.closePath(); x.fill();
+        x.fillStyle = 'rgba(255,255,255,.35)'; x.fillRect(lx - 0.09, ly - 0.12, 0.05, 0.1);
+        x.fillStyle = lv >= 2 ? '#d8f0ff' : '#ffe8a8'; x.beginPath(); x.ellipse(lx, ly + 0.035, 0.13, 0.06, 0, 0, Math.PI * 2); x.fill();
       }
     },
 
@@ -684,25 +703,30 @@ const BuildingArt = {
   },
 
   tent(x, tx, ty, tw, td, th, c1, c2) {
-    const V = Art.V, hv = th * V;
+    // conical tent: striped segments lit by their facing, entrance flap at the front
+    const V = Art.V, cx = tx + tw / 2, cy = ty + td * 0.62, rx = tw * 0.62, ry = td * 0.34, hv = th * V * 1.6;
     const t1 = Art.tones(c1), t2 = Art.tones(c2);
-    // ridge runs back to front; roof halves left (lit) and right (shade)
-    const rx = tx + tw / 2;
-    x.fillStyle = 'rgba(0,0,0,.25)'; x.beginPath(); x.ellipse(rx + 0.15, ty + td, tw * 0.7, 0.2, 0, 0, Math.PI * 2); x.fill();
-    const stripes = 5;
-    for (const side of [-1, 1]) {
-      for (let i = 0; i < stripes; i++) {
-        const v0 = i / stripes, v1 = (i + 1) / stripes;
-        x.fillStyle = (i % 2 ? t2 : t1)[side < 0 ? 'hi' : 'lo'];
-        x.beginPath();
-        x.moveTo(rx, ty - hv + td * v0); x.lineTo(rx, ty - hv + td * v1);
-        x.lineTo(rx + side * tw / 2, ty + td * v1); x.lineTo(rx + side * tw / 2, ty + td * v0); x.closePath(); x.fill();
-      }
+    x.fillStyle = 'rgba(0,0,0,.28)'; x.beginPath(); x.ellipse(cx + 0.2, cy + 0.08, rx * 1.1, ry * 1.1, 0, 0, Math.PI * 2); x.fill();
+    const n = 12, ax = cx, ay = cy - hv;
+    for (let i = 0; i < n; i++) {
+      const a0 = i / n * Math.PI * 2, a1 = (i + 1) / n * Math.PI * 2;
+      const am = (a0 + a1) / 2;
+      if (Math.sin(am) < -0.05) continue; // back half hidden
+      const lit = Math.cos(am) * Art.LX + Math.sin(am) * 0.3 * Art.LY;
+      const t = i % 2 ? t2 : t1;
+      x.fillStyle = lit > 0.25 ? t.hi : lit > -0.25 ? t.base : t.lo;
+      x.beginPath(); x.moveTo(ax, ay); x.lineTo(cx + Math.cos(a0) * rx, cy + Math.sin(a0) * ry); x.lineTo(cx + Math.cos(a1) * rx, cy + Math.sin(a1) * ry); x.closePath(); x.fill();
     }
-    // front gable
-    x.fillStyle = t1.base; x.beginPath(); x.moveTo(rx - tw / 2, ty + td); x.lineTo(rx, ty + td - hv); x.lineTo(rx + tw / 2, ty + td); x.closePath(); x.fill();
-    x.fillStyle = '#2a1a10'; x.beginPath(); x.moveTo(rx - 0.18, ty + td); x.lineTo(rx, ty + td - hv * 0.6); x.lineTo(rx + 0.18, ty + td); x.closePath(); x.fill();
-    x.strokeStyle = t1.edge; x.lineWidth = 0.03; x.beginPath(); x.moveTo(rx - tw / 2, ty + td); x.lineTo(rx, ty + td - hv); x.lineTo(rx + tw / 2, ty + td); x.moveTo(rx, ty - hv); x.lineTo(rx, ty + td - hv); x.stroke();
+    // back silhouette for the upper part
+    x.fillStyle = t1.lo; x.beginPath(); x.moveTo(ax, ay); x.lineTo(cx - rx, cy); x.ellipse(cx, cy, rx, ry, 0, Math.PI, Math.PI * 2); x.closePath();
+    x.globalCompositeOperation = 'destination-over'; x.fill(); x.globalCompositeOperation = 'source-over';
+    // entrance flap
+    x.fillStyle = '#2a1a10'; x.beginPath(); x.moveTo(cx - 0.02, cy + ry * 0.98); x.lineTo(ax + 0.04, ay + hv * 0.45); x.lineTo(cx + 0.2, cy + ry * 0.92); x.closePath(); x.fill();
+    x.fillStyle = t2.hi; x.beginPath(); x.moveTo(ax + 0.04, ay + hv * 0.45); x.lineTo(cx + 0.2, cy + ry * 0.92); x.lineTo(cx + 0.32, cy + ry * 0.85); x.closePath(); x.fill();
+    x.strokeStyle = t1.edge; x.lineWidth = 0.03; x.beginPath(); x.moveTo(cx - rx, cy); x.lineTo(ax, ay); x.lineTo(cx + rx, cy); x.ellipse(cx, cy, rx, ry, 0, 0, Math.PI); x.stroke();
+    // pole tip with a small pennant
+    x.strokeStyle = '#5a3a1a'; x.lineWidth = 0.04; x.beginPath(); x.moveTo(ax, ay); x.lineTo(ax, ay - 0.25); x.stroke();
+    x.fillStyle = t2.base; x.beginPath(); x.moveTo(ax, ay - 0.25); x.lineTo(ax + 0.22, ay - 0.2); x.lineTo(ax, ay - 0.14); x.closePath(); x.fill();
   },
 
   octPad(x, cx, cy, r, vt) {
@@ -794,7 +818,7 @@ const BuildingArt = {
       case 'caravan': s = [[0.1, 0.1, W - 0.2, 0.25, 0.4], [0.45, 1.35, 1.1, 1.4, 1.0], [W - 1.55, 1.35, 1.1, 1.4, 1.0]]; break;
       case 'shuttlepad': s = [[0.12, 0.12, W - 0.24, H - 0.24, 0.2], [W - 1.05, 0.15, 0.7, 0.5, 0.75]]; break;
       case 'port': s = [[W / 2 - 0.45, 0.25, 0.9, 0.8, 3.0], [0.45, 0.35, W - 0.9, 0.55, 0.55], [0.48, H - 0.8, 0.14, 0.14, 3.6], [W - 0.62, H - 0.8, 0.14, 0.14, 3.6]]; break;
-      case 'dock': s = [[0.3, 0.35, 1.6, 1.0, 1.0], [0.9, 1.3, 0.3, 0.3, 3.2], [W - 1.2, 1.3, 0.3, 0.3, 3.2], [0.2, 2.4, 1.3, 5.4, 1.0], [W - 1.55, 2.4, 1.3, 5.4, 1.0]]; break;
+      case 'dock': s = [[0.3, 0.35, 1.6, 1.0, 1.0], [0.9, 7.45, 0.3, 0.3, 3.2], [W - 1.2, 7.45, 0.3, 0.3, 3.2], [0.2, 2.4, 1.3, 5.4, 1.0], [W - 1.55, 2.4, 1.3, 5.4, 1.0]]; break;
       case 'terminal': s = [[0.4, 0.5, 2.8, 1.6, 1.4], [W - 2.05, 0.9, 0.9, 0.9, 2.6]]; break;
       case 'lamp': s = [[0.46, 0.66, 0.08, 0.08, 2.7]]; break;
       case 'flag': s = [[0.32, 0.68, 0.06, 0.06, 2.9]]; break;

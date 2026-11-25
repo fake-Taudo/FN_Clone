@@ -41,7 +41,8 @@ const Render = {
     Render.canvas.height = Math.round(hh * dpr);
   },
   setPlanet(planet) {
-    Render.chunks.clear();
+    Render.chunks.clear(); Render.comps.clear();
+    Render.darkGround = ItemArt.lum(planet.ground[1]) < 0.16;
     Art.clearPlanet();
     Render.palette = planet;
     Render.planetStyle = planet.index <= 8 ? planet.index : (RNG.hash(planet.index, 3) % 8) + 1;
@@ -143,12 +144,40 @@ const Render = {
     ctx.imageSmoothingEnabled = true;
     const P = Render.palette;
     const need = [];
+    // far/mid/near zoom: terrain + grain + decor baked per (sub-)chunk (one drawImage each)
+    const comp = Render.ppt() <= 66;
+    const cp = comp ? Art.bucket(Render.ppt(), 64) : 0;
+    const CS = cp <= 24 ? S : S / 2;
+    const drawn = Render.compDrawn || (Render.compDrawn = new Set());
+    drawn.clear();
+    let compBudget = 2;
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
       const key = U.chunkKey(cx, cy);
       const ch = Render.chunks.get(key);
       const rx = cx * S - Render.ox, ry = cy * S - Render.oy;
+      if (comp && ch) {
+        ch.last = App.frame;
+        let all = true;
+        for (let sy = 0; sy < S; sy += CS) for (let sx = 0; sx < S; sx += CS) {
+          const wx = cx * S + sx, wy = cy * S + sy;
+          if (wx + CS < vr.x0 || wx > vr.x1 || wy + CS < vr.y0 || wy > vr.y1) continue;
+          const sk = key + '|' + sx + '|' + sy + '|' + CS;
+          let cc = Render.comps.get(sk);
+          if ((!cc || cc.cp !== cp) && compBudget-- > 0) { cc = { canvas: Render.buildComp(g, cx, cy, sx, sy, CS, cp, ch.canvas), cp }; Render.comps.set(sk, cc); }
+          if (cc && cc.cp === cp) { cc.last = App.frame; ctx.drawImage(cc.canvas, rx + sx, ry + sy, CS + 0.02, CS + 0.02); }
+          else { all = false; ctx.drawImage(ch.canvas, sx / S * ch.canvas.width, sy / S * ch.canvas.height, CS / S * ch.canvas.width, CS / S * ch.canvas.height, rx + sx, ry + sy, CS + 0.02, CS + 0.02); }
+        }
+        if (all) drawn.add(key);
+        continue;
+      }
       if (ch) { ch.last = App.frame; ctx.drawImage(ch.canvas, rx, ry, S + 0.02, S + 0.02); }
       else { ctx.fillStyle = P.ground[1]; ctx.fillRect(rx, ry, S + 0.02, S + 0.02); need.push([cx, cy, U.dist2(cx * S + 16, cy * S + 16, App.cam.x, App.cam.y)]); }
+    }
+    // memory cap for baked chunks (~40 MB of pixels)
+    let px = 0; for (const e of Render.comps.values()) px += e.canvas.width * e.canvas.height;
+    if (px > 11e6) {
+      const arr = [...Render.comps.entries()].sort((a, b) => a[1].last - b[1].last);
+      for (const [k, e] of arr) { if (px <= 7e6 || e.last === App.frame) break; px -= e.canvas.width * e.canvas.height; Render.comps.delete(k); }
     }
     need.sort((a, b) => a[2] - b[2]);
     for (const [cx, cy] of need) {
@@ -159,11 +188,49 @@ const Render = {
       const arr = [...Render.chunks.entries()].sort((a, b) => a[1].last - b[1].last);
       for (let i = 0; i < arr.length - 120; i++) Render.chunks.delete(arr[i][0]);
     }
-    Render.drawGrain(ctx, vr);
+    if (!comp) Render.drawGrain(ctx, vr);
+  },
+  comps: new Map(),
+  buildComp(g, cx, cy, sx, sy, CS, cp, terrain) {
+    const S = CONFIG.chunkSize, c = Art.canvas(CS * cp, CS * cp), x = c.getContext('2d');
+    x.imageSmoothingEnabled = true;
+    const tw = terrain.width / S;
+    x.drawImage(terrain, sx * tw, sy * tw, CS * tw, CS * tw, 0, 0, CS * cp, CS * cp);
+    const X0 = cx * S + sx, Y0 = cy * S + sy;
+    if (App.quality !== 'low') {
+      const G = Render.grainCanvas(), T = 6, step = T * cp;
+      x.globalAlpha = 0.08 * U.clamp((cp - 8) / 16, 0.4, 1);
+      const ox = ((X0 % T) + T) % T, oy = ((Y0 % T) + T) % T;
+      for (let yy = -oy * cp; yy < CS * cp; yy += step) for (let xx = -ox * cp; xx < CS * cp; xx += step) x.drawImage(G, xx, yy, step, step);
+      x.globalAlpha = 1;
+    }
+    x.setTransform(cp, 0, 0, cp, -X0 * cp, -Y0 * cp);
+    const c0x = Math.floor((X0 - 7) / S), c1x = Math.floor((X0 + CS + 7) / S), c0y = Math.floor((Y0 - 7) / S), c1y = Math.floor((Y0 + CS + 7) / S);
+    const small = cp < 12;
+    for (let ny = c0y; ny <= c1y; ny++) for (let nx = c0x; nx <= c1x; nx++) {
+      for (const d of Render.decorFor(g, nx, ny)) {
+        if (d.x < X0 - 7 || d.x > X0 + CS + 7 || d.y < Y0 - 7 || d.y > Y0 + CS + 7) continue;
+        if (small && (d.kind === 'pebbles' || d.kind === 'dune')) continue;
+        const spr = DecorArt.sprite(d.kind, d.v, Art.bucket(cp * Math.min(2, d.s), 128));
+        const w = spr.w * d.s, h = spr.h * d.s;
+        x.drawImage(spr.canvas, d.x - w * spr.ax, d.y - h * spr.ay, w, h);
+      }
+    }
+    return c;
+  },
+  grainCanvas() {
+    if (!Render.grain) {
+      const c = Art.canvas(128, 128), x = c.getContext('2d');
+      const rnd = RNG.mulberry32(99);
+      for (let i = 0; i < 2600; i++) { const v = rnd(); x.fillStyle = v < 0.5 ? 'rgba(0,0,0,' + (0.25 + rnd() * 0.5) + ')' : 'rgba(255,255,255,' + (0.18 + rnd() * 0.4) + ')'; x.fillRect(Math.floor(rnd() * 128), Math.floor(rnd() * 128), 1, 1 + (rnd() < 0.2 ? 1 : 0)); }
+      Render.grain = { canvas: c, pat: null };
+    }
+    return Render.grain.canvas;
   },
   // static seamless micro-grain, anchored to the world (one pattern fill per frame)
   drawGrain(ctx, vr) {
     if (App.cam.zoom < 14 || App.quality === 'low') return;
+    Render.grainCanvas();
     if (!Render.grain) {
       const c = Art.canvas(128, 128), x = c.getContext('2d');
       const rnd = RNG.mulberry32(99);
@@ -221,8 +288,10 @@ const Render = {
     const tm = App.now / 1000;
     const anim = [];
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const baked = Render.compDrawn && Render.compDrawn.has(U.chunkKey(cx, cy));
       for (const d of Render.decorFor(g, cx, cy)) {
         if (d.x < vr.x0 - 6 || d.x > vr.x1 + 6 || d.y < vr.y0 - 6 || d.y > vr.y1 + 6) continue;
+        if (baked) { if (DECOR_ANIM[d.kind]) anim.push(d); continue; }
         if (z < 12 && (d.kind === 'pebbles' || d.kind === 'dune')) continue;
         const spr = DecorArt.sprite(d.kind, d.v, ppt);
         const w = spr.w * d.s, h = spr.h * d.s;
@@ -448,7 +517,7 @@ const Render = {
       const sky = Render.palette.sky;
       const gr = ctx.createLinearGradient(0, 0, 0, H);
       gr.addColorStop(0, 'rgba(' + sky[0] + ',' + sky[1] + ',' + sky[2] + ',' + (0.16 * k).toFixed(3) + ')'); gr.addColorStop(0.45, 'rgba(0,0,0,0)');
-      ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H * 0.46);
     }
     // dust storm
     if (App.settings.weather && !App.settings.reducedFx) {

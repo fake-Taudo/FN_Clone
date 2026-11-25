@@ -18,6 +18,7 @@ const Frame = {
     const ctx = Render.ctx;
     Draw.tm = App.now / 1000;
     Draw.dt = Math.min(0.1, dt || 0.016);
+    Art.tick++;
     App.frame++;
     Render.night = Render.dayNight(g);
     Render.updateParticles(dt);
@@ -105,6 +106,7 @@ const Frame = {
     // UI overlays on top of the night grade: badges, level pills, floating texts
     if (App.cam.zoom >= 10) for (const b of solid) if (b.warn) BuildingArt.badge(ctx, b, tm);
     for (const b of solid) { Draw.levelTag(ctx, b); if (b.type === 'terminal' && App.cam.zoom >= 12) Frame.contractBadge(ctx, g, b); }
+    Draw.flushBubbles(ctx);
     Render.drawFloating(ctx, dt);
     document.body.classList.toggle('lowq', App.quality === 'low');
     Frame.edgeMarkers(ctx, g);

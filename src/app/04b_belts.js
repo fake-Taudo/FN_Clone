@@ -59,7 +59,7 @@ const BeltArt = {
     x.rotate(rot * Math.PI / 2);
     const mir = shape === 2 ? -1 : 1;
     if (shape === 2) x.scale(1, -1);
-    const off = (frame / G.frames) * G.period; // profile offset in tiles
+    const off = frame < 0 ? -1 : (frame / G.frames) * G.period; // profile offset in tiles (-1 = static)
     const rail = Art.tones(G.rail);
     const [hx, hy] = BeltArt.toLocal(-0.014, -0.018, rot, mir);
     x.lineCap = 'butt';
@@ -78,12 +78,13 @@ const BeltArt = {
     const sg = x.createLinearGradient(0, -0.34, 0, 0.34);
     sg.addColorStop(0, Col.shade(G.surf, 0.08)); sg.addColorStop(0.5, G.surf); sg.addColorStop(1, Col.shade(G.surf, -0.15));
     x.fillStyle = sg; x.fillRect(-0.6, -0.34, 1.2, 0.68);
-    // slats perpendicular to the motion
-    for (let s = -0.75 + (off % 0.125); s < 0.6; s += 0.125) {
+    // slats perpendicular to the motion (static variant: plain surface with a centre groove)
+    if (off < 0) { x.fillStyle = 'rgba(0,0,0,.22)'; x.fillRect(-0.6, -0.02, 1.2, 0.04); x.fillStyle = G.slat; x.fillRect(-0.6, 0.02, 1.2, 0.02); }
+    else for (let s = -0.75 + (off % 0.125); s < 0.6; s += 0.125) {
       x.fillStyle = G.gap; x.fillRect(s - 0.012, -0.34, 0.024, 0.68);
       x.fillStyle = G.slat; x.fillRect(s + 0.014, -0.34, 0.02, 0.68);
     }
-    if (G.chev) BeltArt.chevrons(x, G, off, grade);
+    if (G.chev && off >= 0) BeltArt.chevrons(x, G, off, grade);
     x.restore();
     // rails (open where a side belt joins)
     BeltArt.railStraight(x, rail, x0, x1, -0.47, -0.35, !!(mask & 4), hx, hy, G);
@@ -133,13 +134,14 @@ const BeltArt = {
     x.fillStyle = sg; x.fillRect(-0.6, -0.6, 1.2, 1.2);
     // slats radial; the profile moves from angle PI to PI/2 (one tile length = quarter turn)
     const dA = (Math.PI / 2) * 0.125, offA = (off % 0.125) / 0.125 * dA;
-    for (let a = A1 + dA - offA; a > A0 - dA; a -= dA) {
+    if (off < 0) { x.strokeStyle = 'rgba(0,0,0,.22)'; x.lineWidth = 0.04; x.beginPath(); x.arc(cx, cy, 0.5, A0, A1); x.stroke(); }
+    else for (let a = A1 + dA - offA; a > A0 - dA; a -= dA) {
       const c = Math.cos(a), s = Math.sin(a);
       x.strokeStyle = G.gap; x.lineWidth = 0.024; x.beginPath(); x.moveTo(cx + c * 0.16, cy + s * 0.16); x.lineTo(cx + c * 0.84, cy + s * 0.84); x.stroke();
       const a2 = a - 0.04, c2 = Math.cos(a2), s2 = Math.sin(a2);
       x.strokeStyle = G.slat; x.lineWidth = 0.02; x.beginPath(); x.moveTo(cx + c2 * 0.16, cy + s2 * 0.16); x.lineTo(cx + c2 * 0.84, cy + s2 * 0.84); x.stroke();
     }
-    if (G.chev) {
+    if (G.chev && off >= 0) {
       const pA = Math.PI / 4, oA = (off % 0.5) / 0.5 * pA;
       for (let a = A1 + pA - oA; a > A0 - pA; a -= pA) {
         const px = cx + Math.cos(a) * 0.5, py = cy + Math.sin(a) * 0.5;
@@ -166,7 +168,8 @@ const BeltArt = {
   draw(ctx, g, list, tm) {
     if (!list.length) return;
     const z = App.cam.zoom, ox = Render.ox, oy = Render.oy;
-    if (z < 13) { BeltArt.drawFlat(ctx, list); return; }
+    if (z < 9) { BeltArt.drawFlat(ctx, list); return; }
+    if (Render.ppt() <= 64) { BeltArt.drawChunked(ctx, g, list, tm); return; }
     const ppt = Art.bucket(Render.ppt() * (1 + BeltArt.M * 2), 128);
     const M = BeltArt.M, size = 1 + M * 2;
     const frames = [0, 0, 0, 0];
@@ -188,6 +191,123 @@ const BeltArt = {
       ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
     }
+  },
+  // mid zoom: static belt layer cached per 16x16 sub-chunk + batched moving profile
+  chunks: new Map(), SS: 16,
+  drawChunked(ctx, g, list, tm) {
+    const ppt = Art.bucket(Render.ppt(), 64), ox = Render.ox, oy = Render.oy;
+    const SS = BeltArt.SS = ppt <= 24 ? 32 : 16;
+    if (BeltArt._ss !== SS) { BeltArt.chunks.clear(); BeltArt._ss = SS; }
+    const seen = BeltArt._seen || (BeltArt._seen = new Map());
+    seen.clear();
+    for (const b of list) { const k = U.chunkKey(Math.floor(b.x / SS), Math.floor(b.y / SS)); let arr = seen.get(k); if (!arr) seen.set(k, arr = []); arr.push(b); }
+    const now = App.now;
+    let budget = 3;
+    for (const [key, arr] of seen) {
+      let e = BeltArt.chunks.get(key);
+      const cx = U.chunkKeyX(key), cy = U.chunkKeyY(key);
+      if (!e || e.ppt !== ppt || e.tv !== g.topoVersion) {
+        // signature over the sub-chunk's belts decides whether the cached layer is still valid
+        const all = BeltArt.subBelts(g, cx, cy);
+        let sig = 0;
+        for (const b of all) { const sh = Draw.beltShape(g, b), m = sh === 0 ? BeltArt.topo(g, b) : 0; sig = (sig * 31 + b.x * 7 + b.y * 13 + b.rot * 3 + b.grade * 5 + sh * 17 + m * 11) | 0; }
+        let ok = true;
+        if (!e || e.ppt !== ppt || e.sig !== sig || e.n !== all.length) {
+          if (budget-- <= 0 && e && e.canvas) ok = false; // keep the old layer, retry next frame
+          else { e = BeltArt.renderChunk(g, cx, cy, ppt, all, e && e.ppt === ppt ? e : null); e.sig = sig; e.n = all.length; }
+        }
+        if (ok) e.tv = g.topoVersion;
+        BeltArt.chunks.set(key, e);
+      }
+      e.used = now;
+      ctx.drawImage(e.canvas, cx * SS - ox, cy * SS - oy, SS, SS);
+    }
+    // evict layers not used recently (memory budget ~64 MB)
+    let px = 0; for (const e of BeltArt.chunks.values()) px += e.canvas.width * e.canvas.height;
+    if (px > 11e6) for (const [k, e] of [...BeltArt.chunks.entries()].sort((a, b) => a[1].used - b[1].used)) { if (px <= 8e6 || now - e.used < 50) break; px -= e.canvas.width * e.canvas.height; BeltArt.chunks.delete(k); }
+    if (App.settings.reducedFx || BeltArt.noMotion) return;
+    // moving profile: slats (close zoom) and chevrons, one path per grade
+    const o = BeltArt._o2 || (BeltArt._o2 = [0, 0, 0, 0]), fake = { p: 0, pp: 0, from: 0 };
+    const slats = Render.ppt() >= 34;
+    ctx.lineCap = 'butt';
+    for (let gr = 0; gr < 4; gr++) {
+      const G = BELT_GRADES[gr];
+      const ph = (tm * CONFIG.belt.speed[gr] / 0.5) % 1;
+      let any = false;
+      if (slats) {
+        ctx.beginPath();
+        for (const b of list) {
+          if (b.grade !== gr) continue;
+          any = true;
+          fake.from = b.shape !== 0 ? (b.shape === 1 ? (b.rot + 1) & 3 : (b.rot + 3) & 3) : b.rot;
+          for (let k = 0; k < 4; k++) {
+            fake.p = fake.pp = (ph * 0.5 + k * 0.25 + 0.125) % 1;
+            BeltArt.itemPos(g, b, fake, 1, o);
+            const x = o[0] - ox, y = o[1] - oy, px2 = -o[3] * 0.32, py2 = o[2] * 0.32;
+            ctx.moveTo(x - px2, y - py2); ctx.lineTo(x + px2, y + py2);
+          }
+        }
+        if (any) { ctx.strokeStyle = G.gap; ctx.lineWidth = 0.035; ctx.stroke(); }
+        if (!G.chev) continue;
+      }
+      ctx.beginPath();
+      any = false;
+      if (Render.ppt() < 16) {
+        // far: one short dash per tile, straight segments only (cheap motion cue)
+        const p = ph * 0.5, DX = U.DX, DY = U.DY;
+        for (const b of list) {
+          if (b.grade !== gr || b.shape !== 0) continue;
+          any = true;
+          const d = (p * 2 % 1) - 0.5, x = b.x + 0.5 - ox + DX[b.rot] * d, y = b.y + 0.5 - oy + DY[b.rot] * d;
+          ctx.moveTo(x - DX[b.rot] * 0.12, y - DY[b.rot] * 0.12); ctx.lineTo(x + DX[b.rot] * 0.12, y + DY[b.rot] * 0.12);
+        }
+        if (any) { ctx.strokeStyle = G.chev || (gr === 1 ? 'rgba(255,240,180,.45)' : 'rgba(255,255,255,.28)'); ctx.lineWidth = 0.12; ctx.stroke(); }
+        continue;
+      }
+      // chevrons: butt caps / miter joins (cheap to rasterise), one per tile at mid zoom
+      const per = slats ? 2 : 1;
+      for (const b of list) {
+        if (b.grade !== gr) continue;
+        any = true;
+        fake.from = b.shape !== 0 ? (b.shape === 1 ? (b.rot + 1) & 3 : (b.rot + 3) & 3) : b.rot;
+        for (let k = 0; k < per; k++) {
+          fake.p = fake.pp = (ph * (per === 2 ? 0.5 : 1) + k * 0.5) % 1;
+          BeltArt.itemPos(g, b, fake, 1, o);
+          const x = o[0] - ox, y = o[1] - oy, dx = o[2] * 0.09, dy = o[3] * 0.09;
+          ctx.moveTo(x - dx - dy * 1.9, y - dy + dx * 1.9); ctx.lineTo(x + dx, y + dy); ctx.lineTo(x - dx + dy * 1.9, y - dy - dx * 1.9);
+        }
+      }
+      if (!any) continue;
+      ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+      ctx.strokeStyle = G.chev || (gr === 1 ? 'rgba(255,240,180,.5)' : 'rgba(255,255,255,.3)'); ctx.lineWidth = gr >= 2 ? 0.07 : 0.06;
+      ctx.stroke();
+    }
+    let boosted = false;
+    ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(155,240,106,' + (0.1 + 0.06 * Math.sin(tm * 6)).toFixed(3) + ')'; ctx.beginPath();
+    for (const b of list) if (b.boost > 1) { boosted = true; if (b.rot & 1) { ctx.rect(b.x - ox + 0.03, b.y - oy, 0.1, 1); ctx.rect(b.x - ox + 0.87, b.y - oy, 0.1, 1); } else { ctx.rect(b.x - ox, b.y - oy + 0.03, 1, 0.1); ctx.rect(b.x - ox, b.y - oy + 0.87, 1, 0.1); } }
+    if (boosted) ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  },
+  subBelts(g, scx, scy) {
+    const SS = BeltArt.SS, S = CONFIG.chunkSize;
+    const x0 = scx * SS, y0 = scy * SS;
+    const set = g.bchunk.get(U.chunkKey(Math.floor(x0 / S), Math.floor(y0 / S)));
+    const out = [];
+    if (set) for (const id of set) { const b = g.buildings.get(id); if (b && b.type === 'belt' && b.x >= x0 && b.x < x0 + SS && b.y >= y0 && b.y < y0 + SS) out.push(b); }
+    return out;
+  },
+  renderChunk(g, cx, cy, ppt, belts, old) {
+    const SS = BeltArt.SS, M = BeltArt.M, size = 1 + M * 2;
+    const c = old ? old.canvas : Art.canvas(SS * ppt, SS * ppt);
+    const x = c.getContext('2d');
+    x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, c.width, c.height);
+    x.setTransform(ppt, 0, 0, ppt, -cx * SS * ppt, -cy * SS * ppt);
+    const sp = Art.bucket(ppt * size, 96);
+    for (const b of belts) {
+      const shape = Draw.beltShape(g, b), mask = shape === 0 ? BeltArt.topo(g, b) : 0;
+      x.drawImage(BeltArt.sprite(b.grade, shape, b.rot, mask, -1, sp), b.x - M, b.y - M, size, size);
+    }
+    return { canvas: c, ppt, used: App.now };
   },
   // far zoom: flat batched rectangles
   drawFlat(ctx, list) {
@@ -232,11 +352,17 @@ const BeltArt = {
     const z = App.cam.zoom;
     if (z < 6) return;
     const ox = Render.ox, oy = Render.oy, now = App.now;
-    const s = 0.3; // half extent in tiles
+    const s = 0.34; // half extent in tiles
     const px = ItemArt.sizeFor(s * 2 * Render.ppt());
     const lod = z < 13;
     const out = BeltArt._o || (BeltArt._o = [0, 0, 0, 0]);
     const fx = !App.settings.reducedFx;
+    // numeric memo of item sprites for this size (avoids building string keys per item)
+    const memoKey = px + '|' + (Render.darkGround ? 1 : 0);
+    if (BeltArt._mk !== memoKey || Art.tick - (BeltArt._mt || 0) > 900) { BeltArt._memo = new Map(); BeltArt._mk = memoKey; BeltArt._mt = Art.tick; }
+    const memo = BeltArt._memo;
+    const spr = (res, ref, rot, fr) => { const k = ((res * 4 + ref) * 3 + rot + 1) * 8 + fr; let c = memo.get(k); if (!c) { c = ItemArt.sprite(res, ref, px, rot, fr); memo.set(k, c); } return c; };
+    const tier7 = Math.floor(tm * 2) & 7;
     for (const b of list) {
       const its = b.items;
       for (let i = 0; i < its.length; i++) {
@@ -244,7 +370,7 @@ const BeltArt = {
         if (!it._born) { it._born = now; it._j = Math.random(); }
         BeltArt.itemPos(g, b, it, alpha, out);
         let x = out[0] - ox, y = out[1] - oy;
-        if (lod) { ctx.drawImage(ItemArt.sprite(it.res, it.ref, px), x - s, y - s, s * 2, s * 2); continue; }
+        if (lod) { ctx.drawImage(spr(it.res, it.ref, 0, 0), x - s, y - s, s * 2, s * 2); continue; }
         const j = it._j;
         const lat = (j - 0.5) * 0.16;
         x += -out[3] * lat; y += out[2] * lat;
@@ -253,9 +379,9 @@ const BeltArt = {
         if (fx && age < 120) k = 0.6 + 0.4 * Art.ease.outBack(age / 120);
         if (fx && it.p === it.pp && it.p > 0.3) { x += Math.sin(tm * 40 + j * 20) * 0.012; }
         const rot = j < 0.33 ? -1 : j < 0.66 ? 0 : 1;
-        const fr = DATA.RESOURCES[it.res].tier === 7 ? Math.floor(tm * 2) & 7 : 0;
+        const fr = DATA.RESOURCES[it.res].tier === 7 ? tier7 : 0;
         const e = s * k;
-        ctx.drawImage(ItemArt.sprite(it.res, it.ref, px, rot, fr), x - e, y - e, e * 2, e * 2);
+        ctx.drawImage(spr(it.res, it.ref, rot, fr), x - e, y - e, e * 2, e * 2);
       }
     }
   },

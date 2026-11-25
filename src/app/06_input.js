@@ -160,6 +160,7 @@ const Input = {
       if (ps.length >= 2) {
         const d = Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y);
         const mx = (ps[0].x + ps[1].x) / 2, my = (ps[0].y + ps[1].y) / 2;
+        Input.zt = null;
         Input.zoomAt(mx, my, U.clamp(Input.pinch.zoom * d / Math.max(10, Input.pinch.d), CONFIG.zoomMin, CONFIG.zoomMax));
         // two-finger pan
         App.cam.x -= (mx - Input.pinch.mx) / App.cam.zoom; App.cam.y -= (my - Input.pinch.my) / App.cam.zoom;
@@ -233,7 +234,10 @@ const Input = {
     e.preventDefault();
     if (!App.g) return;
     const f = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0016));
-    Input.zoomAt(e.clientX, e.clientY, U.clamp(App.cam.zoom * f, CONFIG.zoomMin, CONFIG.zoomMax));
+    // eased zoom: the wheel moves a target, the camera glides there (see updateCamera)
+    if (App.settings.reducedFx) { Input.zoomAt(e.clientX, e.clientY, U.clamp(App.cam.zoom * f, CONFIG.zoomMin, CONFIG.zoomMax)); return; }
+    Input.zt = U.clamp((Input.zt || App.cam.zoom) * f, CONFIG.zoomMin, CONFIG.zoomMax);
+    Input.za = [e.clientX, e.clientY];
   },
   zoomAt(sx, sy, z) {
     const before = Render.screenToWorld(sx, sy);
@@ -260,6 +264,12 @@ const Input = {
   // camera follow each frame
   updateCamera(g, dt, alpha) {
     const p = g.run.player;
+    if (Input.zt) {
+      const z = App.cam.zoom + (Input.zt - App.cam.zoom) * (1 - Math.exp(-dt * 14));
+      const done = Math.abs(Input.zt - z) < 0.02;
+      Input.zoomAt(Input.za[0], Input.za[1], done ? Input.zt : z);
+      if (done) Input.zt = null;
+    }
     if (App.cam.follow) {
       const tx = p.px !== undefined ? p.px + (p.x - p.px) * alpha : p.x;
       const ty = (p.py !== undefined ? p.py + (p.y - p.py) * alpha : p.y) - 0.5;
