@@ -91,6 +91,8 @@ const Sprites = {
     c = document.createElement('canvas'); c.width = c.height = 48;
     const x = c.getContext('2d');
     x.translate(24, 24);
+    x.fillStyle = 'rgba(0,0,0,.35)'; x.beginPath(); x.ellipse(1, 3, 15, 13, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgba(255,255,255,.28)'; x.beginPath(); x.arc(0, 0, 17, 0, Math.PI * 2); x.fill();
     Sprites.drawItem(x, res, ref, 14, 0);
     Sprites.items.set(key, c);
     return c;

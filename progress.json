@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-25T11:58:29.753Z",
+  "updated": "2026-11-25T12:19:22.237Z",
   "currentPhase": 4,
   "phases": [
     {
@@ -24,7 +24,7 @@
       "id": 4,
       "name": "Bauen & Logistik",
       "detail": "Raster, Platzierung, Rotation, Extraktoren, Bänder, Lager, Item-Fluss, Undo/Redo, Info-Panel",
-      "status": "active"
+      "status": "done"
     },
     {
       "id": 5,
@@ -83,6 +83,14 @@
     {
       "time": "2026-11-25T11:58:29.753Z",
       "text": "Erster spielbarer Build online: Bauen, Förderbänder, Verkauf an Aliens, Forschung, Rebirth, Speichern. Jetzt: Testen und Feinschliff der Phasen 4–7."
+    },
+    {
+      "time": "2026-11-25T12:19:22.191Z",
+      "text": "Phase 4 fertig: Raster-Bauen mit Vorschau, Rotation, Linien ziehen (auch per Wischgeste), Abriss, Auswahl, Blaupausen, Undo/Redo; Bänder, Splitter, Merger, Kreuzungen, Brücken."
+    },
+    {
+      "time": "2026-11-25T12:19:22.237Z",
+      "text": "Mobile-Steuerung überarbeitet (einklappbare Bauleiste, Pinch-Zoom, Joystick) und Performance-Optimierungen. Balancing läuft: greedy Bot spielt das echte Spiel, Zielzeiten werden abgestimmt."
     }
   ]
 }

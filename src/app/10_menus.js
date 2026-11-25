@@ -130,7 +130,7 @@ const Menus = {
       const st = Progression.researchState(g, r);
       const [x, y] = pos(r);
       const node = h('div', { class: 'tree-node ' + st, 'data-id': r.id, style: { left: x + 'px', top: y + 'px' } });
-      node.innerHTML = '<b>' + esc(r.name) + '</b>' + (st === 'done' ? '<span style="color:var(--good)">✓ Erforscht</span>' : '<span class="cost' + (Progression.researchCost(g, r) > g.run.money ? ' no' : '') + '">' + Fmt.money(Progression.researchCost(g, r)) + '</span> · ' + Fmt.time(Progression.researchTime(g, r) === Infinity ? r.time : Progression.researchTime(g, r))) +
+      node.innerHTML = '<b>' + esc(r.name) + '</b>' + (st === 'done' ? '<span style="color:var(--good)">✓ Erforscht</span>' : '<span class="cost' + (Progression.researchCost(g, r) > g.run.money ? ' no' : '') + '">' + Fmt.money(Progression.researchCost(g, r)) + '</span> · ' + Fmt.time(Progression.researchTime(g, r))) +
         (st === 'active' ? '<div class="progress" style="margin-top:4px"><i style="width:' + (g.run.research.active.prog * 100) + '%"></i></div>' : '');
       node.addEventListener('click', () => { if (Menus.treeDrag && Menus.treeDrag.moved) return; Menus.treeSel = r.id; Menus.treeDetail(det); Audio2.play('click'); });
       inner.append(node);

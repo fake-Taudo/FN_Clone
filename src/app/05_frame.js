@@ -21,9 +21,12 @@ const Frame = {
     Render.updateParticles(dt);
     Render.setWorldTransform(ctx);
     const vr = Render.visibleRect(2);
-    Render.drawTerrain(ctx, g, vr);
-    Render.drawDecor(ctx, g, vr);
-    Render.drawDeposits(ctx, g, vr);
+    const P = App.debug.prof;
+    let pt = P ? performance.now() : 0;
+    const mark = k => { if (!P) return; const n = performance.now(); P[k] = (P[k] || 0) * 0.95 + (n - pt) * 0.05; pt = n; };
+    Render.drawTerrain(ctx, g, vr); mark('terrain');
+    Render.drawDecor(ctx, g, vr); mark('decor');
+    Render.drawDeposits(ctx, g, vr); mark('deposits');
     if (App.debug.chunkBorders) Frame.chunkBorders(ctx, vr);
     // collect visible buildings
     const S = CONFIG.chunkSize;
@@ -42,6 +45,7 @@ const Frame = {
         vis.push(b);
       }
     }
+    mark('collect');
     // layer 1: flat things (paths, belts)
     for (const b of vis) if (b.type === 'path' || b.type === 'belt') Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
     // items on belts and nodes
@@ -50,6 +54,7 @@ const Frame = {
     if (zoomS >= 6) for (const b of vis) {
       if (b.type === 'belt') { for (const it of b.items) { const p = Draw.itemPos(b, it, alpha); Draw.item(ctx, it.res, it.ref, p[0] - Render.ox, p[1] - Render.oy, isz); } }
     }
+    mark('belts+items');
     // layer 2: buildings
     for (const b of vis) if (b.type !== 'path' && b.type !== 'belt' && b.type !== 'bridge') Draw.building(ctx, g, b, b.x - Render.ox, b.y - Render.oy);
     for (const b of vis) {
@@ -57,6 +62,7 @@ const Frame = {
       if (b.lanes) for (let d = 0; d < 4; d++) if (b.lanes[d] && b.lanes[d].length) Draw.item(ctx, b.lanes[d][0].res, b.lanes[d][0].ref, b.x + 0.5 - Render.ox, b.y + 0.5 - Render.oy, isz * 0.9);
     }
     for (const b of vis) if (b.type === 'bridge') Draw.bridge(ctx, g, b, alpha);
+    mark('buildings');
     // tips
     for (const tp of g.run.tips) {
       const bob = Math.sin(Draw.tm * 4 + tp.x) * 0.1;
@@ -75,6 +81,7 @@ const Frame = {
     const ax = (p.px !== undefined ? p.px + (p.x - p.px) * alpha : p.x), ay = (p.py !== undefined ? p.py + (p.y - p.py) * alpha : p.y);
     Draw.astronaut(ctx, g, ax - Render.ox, ay - Render.oy, Draw.tm);
     Render.drawParticles(ctx);
+    mark('chars+particles');
     // warnings
     if (zoomS >= 10) for (const b of vis) if (b.warn) Frame.warnIcon(ctx, b);
     // overlays
@@ -97,8 +104,9 @@ const Frame = {
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }
-    if (App.quality !== 'low') Render.drawVignette(ctx);
+    document.body.classList.toggle('lowq', App.quality === 'low');
     Frame.edgeMarkers(ctx, g);
+    mark('overlays+atmo');
   },
 
   warnIcon(ctx, b) {

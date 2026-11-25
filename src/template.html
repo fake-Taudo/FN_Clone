@@ -17,6 +17,7 @@
 </head>
 <body>
 <canvas id="game" aria-label="Spielwelt"></canvas>
+<div id="vignette" aria-hidden="true"></div>
 <div id="ui">
   <!-- HUD top-left -->
   <div id="hud-left" class="hud-panel">
@@ -66,11 +67,12 @@
     <div class="bb-head">
       <div id="bb-cats" class="bb-cats" role="tablist"></div>
       <div class="bb-tools">
-        <button id="tool-demolish" class="pill" title="Abriss-Modus (Entf)">⌫ Abriss</button>
-        <button id="tool-select" class="pill hidden" title="Auswahl-Rechteck (Shift+Ziehen)">▭ Auswahl</button>
-        <button id="tool-pipette" class="pill" title="Pipette (Q)">⊙ Pipette</button>
+        <button id="tool-demolish" class="pill" title="Abriss-Modus (Entf)" aria-label="Abriss">⌫<span class="lbl"> Abriss</span></button>
+        <button id="tool-select" class="pill hidden" title="Auswahl-Rechteck (Shift+Ziehen)" aria-label="Auswahl">▭<span class="lbl"> Auswahl</span></button>
+        <button id="tool-pipette" class="pill" title="Pipette (Q)" aria-label="Pipette">⊙<span class="lbl"> Pipette</span></button>
       </div>
     </div>
+    <button id="bb-mini" class="bb-mini" aria-label="Bauauswahl öffnen"></button>
     <div id="bb-cards" class="bb-cards"></div>
     <div id="bb-hint" class="bb-hint"></div>
   </div>

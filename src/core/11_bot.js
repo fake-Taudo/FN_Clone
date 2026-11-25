@@ -1,47 +1,35 @@
 // =====================================================================
 // Bot: headless greedy player used for the balancing report.
-// Builds real buildings with the real simulation: extractor lines (optionally
-// with refineries) routed by BFS into a hub of silos surrounded by sellers.
+// It plays the real simulation: builds extractor lines (optionally with a
+// refinery chain) routed by BFS into a hub of silos surrounded by sellers,
+// and always buys the action with the best revenue gain per cost.
 // =====================================================================
 const Bot = {
   SELLERS: ['bazaar', 'caravan', 'shuttlepad', 'port', 'dock', 'terminal'],
-  RESEARCH_PLAN: ['drill1', 'haggle1', 'belt2', 'shelf1', 'traffic1', 'silo2', 'ref2', 'drill2', 'haggle2', 'service', 'patience', 'cooler', 'traffic2', 'servo', 'ref3', 'refSpeed', 'belt3', 'silo3', 'drill3', 'haggle3', 'beltSpeed', 'contracts', 'belt4'],
+  REF_TYPES: ['refinery1', 'refinery2', 'refinery3'],
+  RESEARCH_PLAN: ['drill1', 'haggle1', 'traffic1', 'shelf1', 'belt2', 'ref2', 'silo2', 'patience', 'drill2', 'haggle2', 'service', 'traffic2', 'cooler', 'ref3', 'refSpeed', 'belt3', 'servo', 'marketing', 'drill3', 'silo3', 'haggle3', 'beltSpeed', 'contracts', 'belt4'],
 
+  HUMAN_DELAY: 20, // seconds a human needs per build decision (menus, aiming, checking)
   create(opts = {}) {
-    const meta = opts.meta || Game.createMeta(opts.seed !== undefined ? opts.seed : 1234);
+    const seed = opts.seed !== undefined ? opts.seed : 1234;
+    const meta = opts.meta || Game.createMeta(seed);
     const g = Game.create(meta, opts.planet || 1);
+    g.rnd = RNG.mulberry32(RNG.hash(seed, 77));
     const L = CONFIG.landing;
-    return {
-      g, meta,
-      hub: { x: L.x, y: L.y + 3 },
-      silos: [], sellers: [], lines: [],
-      busyUntil: 0,
-      log: [], marks: {},
-      exploreR: 20, exploreA: 0, lastScan: -999,
-      lab: null,
-      opts
-    };
+    return { g, meta, hub: { x: L.x, y: L.y + 3 }, silos: [], sellers: [], lines: [], badDeps: new Set(), busyUntil: 0, log: [], marks: {}, exploreR: 20, exploreA: 0, lastScan: -999, lab: null, opts };
   },
+  mark(B, key) { if (B.marks[key] === undefined) { B.marks[key] = B.g.run.time; B.log.push([Math.round(B.g.run.time), key]); } },
 
-  mark(B, key) {
-    if (B.marks[key] === undefined) { B.marks[key] = B.g.run.time; B.log.push([Math.round(B.g.run.time), key]); }
-  },
-
-  // ---------------- geometry helpers ----------------
+  // ---------------- geometry ----------------
   free(g, x, y) { return !g.occ.has(U.tileKey(x, y)); },
-  fits(g, type, x, y, rot) {
-    return Grid.occTiles(type, x, y, rot).every(t => Bot.free(g, t[0], t[1]) && !Bot.reserved(g, t[0], t[1]));
-  },
-  reserved(g, x, y) { return false; },
-  // BFS over free tiles from start tiles to any tile adjacent to the target building. Returns tile path.
-  route(g, starts, target, limit = 30000) {
+  fits(g, type, x, y, rot) { return Grid.occTiles(type, x, y, rot).every(t => Bot.free(g, t[0], t[1])); },
+  route(g, starts, target, limit = 150000) {
     const tr = Grid.rect(target);
     const goal = new Map();
-    for (const p of Grid.perimeter(target)) goal.set(U.tileKey(p[0], p[1]), (p[2] + 2) & 3); // dir pointing into target
-    const minX = Math.min(tr.x, ...starts.map(s => s[0])) - 14, maxX = Math.max(tr.x + tr.w, ...starts.map(s => s[0])) + 14;
-    const minY = Math.min(tr.y, ...starts.map(s => s[1])) - 14, maxY = Math.max(tr.y + tr.h, ...starts.map(s => s[1])) + 14;
-    const prev = new Map();
-    const q = [];
+    for (const p of Grid.perimeter(target)) goal.set(U.tileKey(p[0], p[1]), (p[2] + 2) & 3);
+    const minX = Math.min(tr.x, ...starts.map(s => s[0])) - 24, maxX = Math.max(tr.x + tr.w, ...starts.map(s => s[0])) + 24;
+    const minY = Math.min(tr.y, ...starts.map(s => s[1])) - 24, maxY = Math.max(tr.y + tr.h, ...starts.map(s => s[1])) + 24;
+    const prev = new Map(), q = [];
     for (const s of starts) { const k = U.tileKey(s[0], s[1]); if (!Bot.free(g, s[0], s[1]) || prev.has(k)) continue; prev.set(k, -1); q.push(s); }
     for (let qi = 0; qi < q.length && qi < limit; qi++) {
       const [x, y] = q[qi];
@@ -58,8 +46,7 @@ const Bot = {
         if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
         const nk = U.tileKey(nx, ny);
         if (prev.has(nk) || !Bot.free(g, nx, ny)) continue;
-        prev.set(nk, k);
-        q.push([nx, ny]);
+        prev.set(nk, k); q.push([nx, ny]);
       }
     }
     return null;
@@ -85,46 +72,41 @@ const Bot = {
     return null;
   },
   touches(a, bx, by, bw, bh) {
-    // rectangles a and b share an edge (adjacent, not overlapping)
     const r = Grid.rect(a);
     const ox = Math.min(r.x + r.w, bx + bw) - Math.max(r.x, bx);
     const oy = Math.min(r.y + r.h, by + bh) - Math.max(r.y, by);
     return (ox > 0 && (by + bh === r.y || r.y + r.h === by)) || (oy > 0 && (bx + bw === r.x || r.x + r.w === bx));
   },
+  inRect(x, y, r) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; },
 
-  // ---------------- economy estimates ----------------
-  sellCapacity(B) {
+  // ---------------- economic model ----------------
+  sellerCapOf(g, type, level, b) {
+    const t = SELLER_TIER[type];
+    if (t === 5) return 0;
+    const c = CONFIG.customers[t];
+    const am = b ? Economy.arrivalMult(g, b) : g.mods.arrival * Math.pow(1.1, level - 1);
+    const iv = (c.interval[0] + c.interval[1]) / 2 / am;
+    const svc = CONFIG.serviceRate[t] * Math.pow(1.3, level - 1) * g.mods.service * 1.2;
+    return Math.min(svc, (c.qty[0] + c.qty[1]) / 2 / iv) * 0.9;
+  },
+  model(B) {
     const g = B.g;
-    let s = 0;
-    for (const b of g.lists.seller || []) {
-      const t = SELLER_TIER[b.type];
-      if (t === 5) { s += g.run.contracts.length ? 12 : 0; continue; }
-      const c = CONFIG.customers[t];
-      const iv = (c.interval[0] + c.interval[1]) / 2 / Economy.arrivalMult(g, b);
-      s += Math.min(Economy.serviceRate(g, b), (c.qty[0] + c.qty[1]) / 2 / iv);
-    }
-    return s;
+    let P = 0, V = 0, C = 0, CF = 0;
+    for (const L of B.lines) { P += L.rate; V += L.rate * L.val; }
+    for (const b of B.sellers) { const c = Bot.sellerCapOf(g, b.type, b.level, b); C += c; CF += c * CONFIG.customers[SELLER_TIER[b.type]].factor; }
+    return { P, V, C, F: C > 0 ? CF / C : 1 };
   },
-  production(B) {
-    let s = 0;
-    for (const L of B.lines) s += L.rate;
-    return s;
-  },
+  revenue(m) { return m.P <= 0 ? 0 : Math.min(1, m.C / m.P) * m.V * m.F; },
+  refRate(g, k, level = 1) { return CONFIG.refineRate[k] * Math.pow(1.25, level - 1) * g.mods.refine; },
   lineRate(g, L) {
-    const ex = L.ex;
-    let r = ex.rate;
+    let r = L.ex.rate;
     for (const rf of L.refs) r = Math.min(r, rf.rate);
-    const tp = CONFIG.belt.throughput[L.grade] * g.mods.beltSpeed;
-    return Math.min(r, tp);
+    const grade = L.beltIds.length ? Math.min(...L.beltIds.map(id => { const b = g.buildings.get(id); return b ? b.grade : 3; })) : 3;
+    return Math.min(r, CONFIG.belt.throughput[grade] * g.mods.beltSpeed);
   },
-  avgFactor(B) {
-    const g = B.g;
-    let best = 1;
-    for (const b of g.lists.seller || []) best = Math.max(best, CONFIG.customers[SELLER_TIER[b.type]].factor);
-    return (1 + best) / 2;
-  },
+  maxRefine(g) { return g.run.research.done.has('ref3') ? 3 : g.run.research.done.has('ref2') ? 2 : 1; },
 
-  // ---------------- actions ----------------
+  // ---------------- hub ----------------
   ensureHub(B) {
     const g = B.g;
     if (!B.sellers.length) {
@@ -132,147 +114,232 @@ const Bot = {
       if (b) { B.sellers.push(b); Bot.mark(B, 'firstBazaar'); return true; }
       return false;
     }
-    if (!B.silos.length && g.run.money >= Grid.cost(g, 'silo') + 20) {
+    if (!B.silos.length) {
+      if (g.run.money < Grid.cost(g, 'silo')) return B.lines.length > 0; // save up for the hub silo
       const s = B.sellers[0];
       const spot = Bot.spiralSpot(g, s.x, s.y + s.h, 'silo', 0, (x, y) => Bot.touches(s, x, y, 3, 3), 6);
-      if (spot) {
-        const b = Grid.place(g, { type: 'silo', x: spot.x, y: spot.y, rot: 0 }, { ignoreRadius: true });
-        if (b) { b.outEnabled = false; B.silos.push(b); return true; }
-      }
+      if (spot) { const b = Grid.place(g, { type: 'silo', x: spot.x, y: spot.y, rot: 0 }, { ignoreRadius: true }); if (b) { b.outEnabled = false; B.silos.push(b); return true; } }
     }
     return false;
   },
   targetFor(B) {
-    // the hub silo (or the first seller before a silo exists)
     if (B.silos.length) return B.silos.reduce((a, s) => (s.total / Economy.siloCap(B.g, s)) < (a.total / Economy.siloCap(B.g, a)) ? s : a, B.silos[0]);
     return B.sellers[0];
   },
 
-  // Plans a new extraction line at the best known free deposit.
-  planLine(B) {
+  // ---------------- candidates ----------------
+  bestDeposit(B, budget = Infinity) {
     const g = B.g;
     const target = Bot.targetFor(B);
     if (!target) return null;
-    const hx = target.x + 1, hy = target.y + 1;
     let best = null;
+    const k = Bot.maxRefine(g);
     for (const id of g.world.known) {
+      if (B.badDeps.has(id)) continue;
       const d = World.depositById(g.world, id);
       if (!d || Grid.depositFree(g, d) <= 0) continue;
-      const dist = Math.hypot(d.x - hx, d.y - hy);
-      const exCost = Grid.cost(g, 'extractor', { tier: d.tier });
-      const beltC = Bot.beltCost(g, Math.ceil(dist * 1.2), B.grade || 0);
-      const val = CONFIG.extractRate[d.tier] * DATA.RESOURCES[d.res].value * (B.useRefine && d.tier >= 1 ? 2 : 1);
-      const score = val / (exCost + beltC + dist * 0.8);
-      if (!best || score > best.score) best = { d, dist, cost: exCost + beltC, val, score };
+      const dist = Math.hypot(d.x - target.x, d.y - target.y);
+      const val = DATA.RESOURCES[d.res].value * CONFIG.refineFactor[k];
+      const cost = Grid.cost(g, 'extractor', { tier: d.tier }) + Bot.beltCost(g, Math.ceil(dist * 1.1), 0);
+      if (cost > budget) continue;
+      const score = Math.min(CONFIG.extractRate[d.tier], 0.5) * val / (cost + dist * 2);
+      if (!best || score > best.score) best = { d, dist, score };
     }
     return best;
   },
-  buildLine(B, plan) {
+  candidates(B) {
     const g = B.g;
-    const d = plan.d;
+    const m = Bot.model(B);
+    const R0 = Bot.revenue(m);
+    const out = [];
+    const add = (cost, m2, act, label) => { const gain = Bot.revenue(m2) - R0; if (gain > 1e-9 && isFinite(cost)) out.push({ cost, gain, ratio: gain / cost, act, label }); };
+    // new lines: evaluate every known free deposit with every refine depth, keep the best few
+    if (B.silos.length || !B.lines.length) {
+      const target = Bot.targetFor(B);
+      const lineCands = [];
+      const maxK = B.silos.length ? Bot.maxRefine(g) : 0;
+      for (const id of g.world.known) {
+        if (B.badDeps.has(id)) continue;
+        const d = World.depositById(g.world, id);
+        if (!d || Grid.depositFree(g, d) <= 0) continue;
+        const dist = Math.hypot(d.x - target.x, d.y - target.y);
+        const exRate = CONFIG.extractRate[d.tier] * g.mods.extract;
+        const baseCost = Grid.cost(g, 'extractor', { tier: d.tier }) + Bot.beltCost(g, Math.ceil(dist * 1.3), 0) + dist * 1.5;
+        for (let k = 0; k <= maxK; k++) {
+          let rate = Math.min(exRate, CONFIG.belt.throughput[0] * g.mods.beltSpeed), cost = baseCost;
+          for (let j = 0; j < k; j++) { rate = Math.min(rate, Bot.refRate(g, j)); cost += Grid.cost(g, Bot.REF_TYPES[j]); }
+          const val = DATA.RESOURCES[d.res].value * CONFIG.refineFactor[k];
+          const gain = Bot.revenue({ P: m.P + rate, V: m.V + rate * val, C: m.C, F: m.F }) - R0;
+          if (gain > 0) lineCands.push({ d, k, cost, gain });
+        }
+      }
+      lineCands.sort((a, b) => b.gain / b.cost - a.gain / a.cost);
+      for (const lc of lineCands.slice(0, 3)) out.push({ cost: lc.cost, gain: lc.gain, ratio: lc.gain / lc.cost, act: () => Bot.buildLine(B, lc.d, lc.k), label: 'line' + lc.k });
+    }
+    // upgrade the bottleneck of a line
+    for (const L of B.lines) {
+      const comps = [{ b: L.ex, r: L.ex.rate }].concat(L.refs.map(rf => ({ b: rf, r: rf.rate })));
+      const grade = Math.min(...L.beltIds.map(id => (g.buildings.get(id) || { grade: 3 }).grade));
+      const beltR = CONFIG.belt.throughput[grade] * g.mods.beltSpeed;
+      comps.sort((a, c) => a.r - c.r);
+      const lo = comps[0];
+      if (beltR < lo.r * 0.999) {
+        const next = DATA.BELT_GRADES[grade + 1];
+        if (!next || (next.research && !g.run.research.done.has(next.research))) continue;
+        const n = L.beltIds.length;
+        const cost = n * (next.cost - DATA.BELT_GRADES[grade].cost * 0.5);
+        const nr = Math.min(lo.r, CONFIG.belt.throughput[grade + 1] * g.mods.beltSpeed);
+        add(cost, { P: m.P - L.rate + nr, V: m.V + (nr - L.rate) * L.val, C: m.C, F: m.F }, () => Bot.upgradeBelts(B, L), 'belts');
+        continue;
+      }
+      if (Grid.upgradeBlock(g, lo.b)) continue;
+      const cost = Grid.upgradeCost(g, lo.b);
+      const mult = lo.b.type === 'extractor' ? CONFIG.extractorLevelSpeed : 1.25;
+      const second = comps.length > 1 ? comps[1].r : Infinity;
+      const nr = Math.min(lo.r * mult, second, beltR);
+      add(cost, { P: m.P - L.rate + nr, V: m.V + (nr - L.rate) * L.val, C: m.C, F: m.F }, () => { Grid.upgrade(g, lo.b); g.topologyDirty = true; }, 'up-' + lo.b.type);
+    }
+    // sellers
+    if (B.silos.length) {
+      for (let t = Math.min(4, g.run.custTier); t >= Math.max(0, g.run.custTier - 2); t--) {
+        const type = Bot.SELLERS[t];
+        const n = g.run.counts[type] || 0, k = CONFIG.crowding[t] || 0;
+        const base = Bot.sellerCapOf(g, type, 1, null);
+        const c = (n + 1) * base / (1 + k * n) - (n > 0 ? n * base / (1 + k * (n - 1)) : 0);
+        const f = CONFIG.customers[t].factor;
+        const C2 = m.C + c;
+        add(Grid.cost(g, type), { P: m.P, V: m.V, C: C2, F: (m.F * m.C + f * c) / C2 }, () => Bot.addSeller(B, type), 'seller' + t);
+      }
+      for (const s of B.sellers) {
+        if (SELLER_TIER[s.type] === 5 || Grid.upgradeBlock(g, s)) continue;
+        const c0 = Bot.sellerCapOf(g, s.type, s.level, s), c1 = c0 * 1.1;
+        add(Grid.upgradeCost(g, s), { P: m.P, V: m.V, C: m.C + c1 - c0, F: m.F }, () => { Grid.upgrade(g, s); }, 'up-seller');
+      }
+    }
+    return { out, m, R0 };
+  },
+
+  // ---------------- actions ----------------
+  buildLine(B, d, k) {
+    const g = B.g;
     const target = Bot.targetFor(B);
-    // extractor spot: try positions touching the deposit, prefer the side towards the hub
     const cands = [];
     for (const t of d.tiles) for (let dy = -2; dy <= 1; dy++) for (let dx = -2; dx <= 1; dx++) cands.push([t[0] + dx, t[1] + dy]);
     cands.sort((a, b) => U.dist2(a[0], a[1], target.x, target.y) - U.dist2(b[0], b[1], target.x, target.y));
     const tried = new Set();
-    const refine = B.useRefine && d.tier >= 1 && g.run.money > plan.cost + 600;
+    let attempts = 0;
     for (const c of cands) {
-      const k = c[0] + ',' + c[1];
-      if (tried.has(k)) continue; tried.add(k);
+      const key = c[0] + ',' + c[1];
+      if (tried.has(key)) continue; tried.add(key);
       const spec = { type: 'extractor', x: c[0], y: c[1], rot: 0 };
       const chk = Grid.canPlace(g, spec, { ignoreRadius: true, ignoreMoney: true });
       if (!chk.ok || chk.dep.id !== d.id) continue;
-      // optional refinery adjacent to the extractor
-      let src = null, ref = null;
-      const exRect = { x: c[0], y: c[1], w: 2, h: 2 };
-      if (refine) {
-        for (let rot = 0; rot < 4 && !ref; rot++) {
-          const offs = [[2, -1], [-3, -1], [-1, 2], [-1, -3], [2, 0], [-3, 0], [0, 2], [0, -3]];
-          for (const o of offs) {
-            const rx = c[0] + o[0], ry = c[1] + o[1];
-            if (!Bot.touches(exRect, rx, ry, 3, 3)) continue;
-            const ok = Grid.occTiles('refinery1', rx, ry, rot).every(t => Bot.free(g, t[0], t[1]) && !(t[0] >= c[0] && t[0] < c[0] + 2 && t[1] >= c[1] && t[1] < c[1] + 2));
-            if (!ok) continue;
-            const pb = { x: rx, y: ry, w: 3, h: 3, rot };
-            const port = Grid.frontPort(pb);
-            if (port[0] >= c[0] && port[0] < c[0] + 2 && port[1] >= c[1] && port[1] < c[1] + 2) continue;
-            if (!Bot.free(g, port[0], port[1])) continue;
-            ref = { x: rx, y: ry, rot, port };
-            break;
-          }
-        }
-        if (!ref) continue;
-      }
-      // reserve: temporarily register footprint to route around it
-      const ghostIds = [];
-      const occupy = (type, x, y, rot) => { const b = Grid.make(g, { type, x, y, rot, id: -100 - ghostIds.length }); Grid.register(g, b); ghostIds.push(b); return b; };
+      if (++attempts > 6) break;
+      const ghosts = [];
+      const occupy = (type, x, y, rot) => { const b = Grid.make(g, { type, x, y, rot, id: -100 - ghosts.length }); Grid.register(g, b); ghosts.push(b); return b; };
+      const cleanup = () => { for (const gb of ghosts) Grid.unregister(g, gb); g.nextId = 1; for (const id of g.buildings.keys()) if (id >= g.nextId) g.nextId = id + 1; };
       const exG = occupy('extractor', c[0], c[1], 0);
-      let starts;
-      if (ref) { occupy('refinery1', ref.x, ref.y, ref.rot); starts = [ref.port]; }
-      else starts = Grid.perimeter(exG).map(p => [p[0], p[1]]);
+      // refinery chain
+      const chain = [];
+      let prevRect = { x: c[0], y: c[1], w: 2, h: 2 }, prevPort = null, ok = true;
+      for (let j = 0; j < k && ok; j++) {
+        let found = null;
+        const positions = [];
+        if (j === 0) { for (let oy = -3; oy <= 2; oy++) for (let ox = -3; ox <= 2; ox++) positions.push([c[0] + ox, c[1] + oy]); }
+        else { for (let oy = -2; oy <= 0; oy++) for (let ox = -2; ox <= 0; ox++) positions.push([prevPort[0] + ox, prevPort[1] + oy]); }
+        positions.sort((a, b) => U.dist2(a[0], a[1], target.x, target.y) - U.dist2(b[0], b[1], target.x, target.y));
+        for (const p of positions) {
+          for (let rot = 0; rot < 4 && !found; rot++) {
+            if (!Bot.fits(g, 'refinery1', p[0], p[1], rot)) continue;
+            const rect = { x: p[0], y: p[1], w: 3, h: 3 };
+            if (j === 0 && !Bot.touches(exG, p[0], p[1], 3, 3)) continue;
+            if (j > 0 && !Bot.inRect(prevPort[0], prevPort[1], rect)) continue;
+            const port = Grid.frontPort({ x: p[0], y: p[1], w: 3, h: 3, rot });
+            if (!Bot.free(g, port[0], port[1]) || Bot.inRect(port[0], port[1], prevRect)) continue;
+            found = { x: p[0], y: p[1], rot, port, rect };
+          }
+          if (found) break;
+        }
+        if (!found) { ok = false; break; }
+        occupy('refinery1', found.x, found.y, found.rot);
+        chain.push(found); prevRect = found.rect; prevPort = found.port;
+      }
+      if (!ok) { cleanup(); continue; }
+      const starts = chain.length ? [prevPort] : Grid.perimeter(exG).map(p => [p[0], p[1]]);
       const r = Bot.route(g, starts, target);
-      for (const gb of ghostIds) Grid.unregister(g, gb);
-      g.nextId = Math.max(1, ...[...g.buildings.keys()].map(id => id + 1));
+      cleanup();
       if (!r) continue;
-      const belts = Bot.beltSpecs(r.path, r.lastDir, B.grade || 0);
-      const total = Grid.cost(g, 'extractor', { tier: d.tier }) + Bot.beltCost(g, belts.length, B.grade || 0) + (ref ? Grid.cost(g, 'refinery1') : 0);
+      const belts = Bot.beltSpecs(r.path, r.lastDir, 0);
+      const total = Grid.cost(g, 'extractor', { tier: d.tier }) + Bot.beltCost(g, belts.length, 0) + chain.reduce((a, ch, j) => a + Grid.cost(g, Bot.REF_TYPES[j]), 0);
       if (total > g.run.money) return { wait: total };
       const ex = Grid.place(g, spec, { ignoreRadius: true });
       if (!ex) return null;
-      let rf = null;
-      if (ref) {
-        rf = Grid.place(g, { type: 'refinery1', x: ref.x, y: ref.y, rot: ref.rot }, { ignoreRadius: true });
-        // extractor outputs only into the refinery
+      const refs = chain.map((ch, j) => Grid.place(g, { type: Bot.REF_TYPES[j], x: ch.x, y: ch.y, rot: ch.rot }, { ignoreRadius: true, ignoreMoney: true }));
+      if (refs.length) {
         let mask = 0;
-        for (const p of Grid.perimeter(ex)) if (p[0] >= ref.x && p[0] < ref.x + 3 && p[1] >= ref.y && p[1] < ref.y + 3) mask |= 1 << p[2];
+        for (const p of Grid.perimeter(ex)) if (Bot.inRect(p[0], p[1], chain[0].rect)) mask |= 1 << p[2];
         ex.outMask = mask || 15;
         Bot.mark(B, 'firstRefinery');
       }
-      Actions.placeMany(g, belts, { ignoreRadius: true });
-      const L = { ex, refs: rf ? [rf] : [], grade: B.grade || 0, belts: belts.length, rate: 0, tier: d.tier, dist: plan.dist };
+      const res = Actions.placeMany(g, belts, { ignoreRadius: true });
       g.topologyDirty = true; Game.recompute(g);
+      const L = { ex, refs, beltIds: res.placed.map(b => b.id), rate: 0, val: DATA.RESOURCES[d.res].value * CONFIG.refineFactor[refs.length], res: d.res };
       L.rate = Bot.lineRate(g, L);
       B.lines.push(L);
       Bot.mark(B, 'firstExtractor');
-      B.busyUntil = g.run.time + 6 + plan.dist * 2 / g.mods.walk;
+      B.busyUntil = g.run.time + Bot.HUMAN_DELAY * 2 + Math.hypot(d.x - B.hub.x, d.y - B.hub.y) * 2 / g.mods.walk + belts.length * 0.3;
       return { ok: true };
     }
+    B.badDeps.add(d.id);
     return null;
   },
-  addSeller(B) {
+  upgradeBelts(B, L) {
     const g = B.g;
-    const tier = Math.min(g.run.custTier, 4);
-    // choose the best affordable seller tier (higher tiers are much more valuable)
-    for (let t = tier; t >= 0; t--) {
-      const type = Bot.SELLERS[t];
-      const cost = Grid.cost(g, type);
-      if (cost > g.run.money) continue;
-      for (const s of B.silos) {
-        const sz = Grid.size(type, 0);
-        const spot = Bot.spiralSpot(g, s.x - sz.w, s.y - sz.h, type, 0, (x, y) => Bot.touches(s, x, y, sz.w, sz.h), 12);
-        if (spot) {
-          const b = Grid.place(g, { type, x: spot.x, y: spot.y, rot: 0 }, { ignoreRadius: true });
-          if (b) { B.sellers.push(b); B.busyUntil = g.run.time + 5; return true; }
+    for (const id of L.beltIds) { const b = g.buildings.get(id); if (b) Grid.upgrade(g, b); }
+    g.topologyDirty = true;
+  },
+  addSeller(B, type) {
+    const g = B.g;
+    const sz = Grid.size(type, 0);
+    for (const s of B.silos) {
+      const spot = Bot.spiralSpot(g, s.x - sz.w, s.y - sz.h, type, 0, (x, y) => Bot.touches(s, x, y, sz.w, sz.h), 12);
+      if (spot) {
+        const b = Grid.place(g, { type, x: spot.x, y: spot.y, rot: 0 }, { ignoreRadius: true });
+        if (b) {
+          B.sellers.push(b);
+          if (type === 'bazaar') Bot.layPath(B, b);
+          return true;
         }
       }
-      // no room around silos: place a new silo next to the hub and try again later
-      if (B.silos.length && g.run.money > Grid.cost(g, 'silo') + cost) {
-        const last = B.silos[B.silos.length - 1];
-        const spot = Bot.spiralSpot(g, last.x, last.y + 12, 'silo', 0, null, 30);
-        if (spot) { const b = Grid.place(g, { type: 'silo', x: spot.x, y: spot.y, rot: 0 }, { ignoreRadius: true }); if (b) { b.outEnabled = false; B.silos.push(b); return true; } }
-      }
-      return false;
+    }
+    // no room left: open a new hub silo next to the existing hub
+    const last = B.silos[B.silos.length - 1];
+    if (g.run.money >= Grid.cost(g, 'silo')) {
+      const spot = Bot.spiralSpot(g, last.x + 14, last.y, 'silo', 0, null, 30);
+      if (spot) { const b = Grid.place(g, { type: 'silo', x: spot.x, y: spot.y, rot: 0 }, { ignoreRadius: true }); if (b) { b.outEnabled = false; B.silos.push(b); } }
     }
     return false;
+  },
+  layPath(B, b) {
+    const g = B.g;
+    const specs = [];
+    for (let d = 0; d < 4 && specs.length < 8; d++) {
+      let x = b.x + (d === 0 ? b.w : d === 2 ? -1 : 1), y = b.y + (d === 1 ? b.h : d === 3 ? -1 : 0);
+      for (let i = 0; i < 8 && specs.length < 8; i++) {
+        if (!Bot.free(g, x, y)) break;
+        specs.push({ type: 'path', x, y, rot: 0 });
+        x += U.DX[d]; y += U.DY[d];
+      }
+    }
+    if (specs.length) Actions.placeMany(g, specs, { ignoreRadius: true });
   },
   terminal(B) {
     const g = B.g;
     if (g.run.custTier < 5 || (g.lists.terminal || []).length) return false;
     const cost = Grid.cost(g, 'terminal');
-    if (cost > g.run.money * 0.6) return false;
+    if (cost > g.run.money * 0.7) return false;
     for (const s of B.silos) {
-      const spot = Bot.spiralSpot(g, s.x - 7, s.y - 7, 'terminal', 0, (x, y) => Bot.touches(s, x, y, 7, 7), 14);
+      const spot = Bot.spiralSpot(g, s.x - 7, s.y - 7, 'terminal', 0, (x, y) => Bot.touches(s, x, y, 7, 7), 16);
       if (spot) { const b = Grid.place(g, { type: 'terminal', x: spot.x, y: spot.y, rot: 0 }, { ignoreRadius: true }); if (b) { B.sellers.push(b); return true; } }
     }
     return false;
@@ -280,8 +347,8 @@ const Bot = {
   research(B) {
     const g = B.g;
     if (!B.lab) {
-      if (g.run.money < 2500 || g.run.earned < 4000) return false;
-      const spot = Bot.spiralSpot(g, B.hub.x - 10, B.hub.y - 10, 'lab', 0, null, 30);
+      if (g.run.earned < 3000 || g.run.money < Grid.cost(g, 'lab') + 300) return false;
+      const spot = Bot.spiralSpot(g, B.hub.x - 12, B.hub.y - 10, 'lab', 0, null, 30);
       if (!spot) return false;
       B.lab = Grid.place(g, { type: 'lab', x: spot.x, y: spot.y, rot: 0 }, { ignoreRadius: true });
       return !!B.lab;
@@ -290,44 +357,17 @@ const Bot = {
     for (const id of Bot.RESEARCH_PLAN) {
       const r = DATA.RESEARCH_BY_ID[id];
       if (Progression.researchState(g, r) !== 'available') continue;
-      if (Progression.researchCost(g, r) > g.run.money * 0.5) return false;
-      if (!Progression.startResearch(g, id)) { if (id === 'ref2' || id === 'ref3') B.useRefine = true; return true; }
-      return false;
+      if (Progression.researchCost(g, r) > g.run.money * 0.4) return false;
+      return !Progression.startResearch(g, id);
     }
-    return false;
-  },
-  upgrades(B) {
-    const g = B.g;
-    // cheapest beneficial upgrade among extractors (when selling is not the bottleneck), refineries and sellers
-    let best = null;
-    const prod = Bot.production(B), cap = Bot.sellCapacity(B);
-    const sellBound = prod > cap * 0.9;
-    const cand = [];
-    if (!sellBound) for (const L of B.lines) {
-      const ex = L.ex;
-      if (Grid.upgradeBlock(g, ex)) continue;
-      const bottleneck = L.refs.length && L.refs.some(r => r.rate < ex.rate * 1.02) ? L.refs.reduce((a, r) => r.rate < a.rate ? r : a, L.refs[0]) : ex;
-      if (Grid.upgradeBlock(g, bottleneck)) continue;
-      const c = Grid.upgradeCost(g, bottleneck);
-      const gain = L.rate * 0.3 * DATA.RESOURCES[ex.res].value * (L.refs.length ? 2 : 1);
-      cand.push({ b: bottleneck, c, score: gain / c });
-    }
-    if (sellBound) for (const s of B.sellers) {
-      if (Grid.upgradeBlock(g, s)) continue;
-      const c = Grid.upgradeCost(g, s);
-      cand.push({ b: s, c, score: 1 / c });
-    }
-    for (const c of cand) if (c.c <= g.run.money && (!best || c.score > best.score)) best = c;
-    if (best) { Grid.upgrade(g, best.b); g.topologyDirty = true; B.busyUntil = g.run.time + 3; return true; }
     return false;
   },
   explore(B) {
     const g = B.g;
-    if (g.run.time - B.lastScan < 25) return;
+    if (g.run.time - B.lastScan < 30) return;
     B.lastScan = g.run.time;
-    // walk a widening spiral around the hub and scan
     B.exploreA += 1.1;
-    B.exploreR = Math.min(600, B.exploreR + 6);
+    B.exploreR = Math.min(400, B.exploreR + 4);
     const x = B.hub.x + Math.cos(B.exploreA) * B.exploreR, y = B.hub.y + Math.sin(B.exploreA) * B.exploreR;
     World.discover(g.world, x, y, g.mods.scanRadius);
     World.reveal(g.world, x, y, g.mods.scanRadius);
@@ -335,36 +375,39 @@ const Bot = {
 
   decide(B) {
     const g = B.g;
-    if (g.run.time < B.busyUntil) return;
-    if (g.run.time < 8) return; // landing, looking around
+    if (g.run.time < B.busyUntil || g.run.time < 8) return;
+    for (const L of B.lines) { L.rate = Bot.lineRate(g, L); }
     if (Bot.ensureHub(B)) return;
-    for (const L of B.lines) L.rate = Bot.lineRate(g, L);
     Bot.explore(B);
-    if (Bot.research(B)) return;
+    if (Bot.research(B)) { B.busyUntil = g.run.time + 4; return; }
     if (Bot.terminal(B)) return;
-    const prod = Bot.production(B), cap = Bot.sellCapacity(B);
-    if (!B.lines.length || prod < cap * 0.8) {
-      const plan = Bot.planLine(B);
-      if (plan) {
-        if (plan.cost <= g.run.money) { const r = Bot.buildLine(B, plan); if (r && r.ok) return; }
-        else if (B.lines.length) { if (Bot.upgrades(B)) return; }
-        return;
-      }
-    } else {
-      if (Bot.addSeller(B)) return;
+    if (!B.lines.length) {
+      const dep = Bot.bestDeposit(B, g.run.money);
+      if (dep) Bot.buildLine(B, dep.d, 0);
+      return;
     }
-    Bot.upgrades(B);
+    if (!B.silos.length) return;
+    const { out, R0 } = Bot.candidates(B);
+    if (!out.length) return;
+    out.sort((a, b) => b.ratio - a.ratio);
+    const best = out[0];
+    const income = Math.max(0.1, R0 * g.mods.sales);
+    let pick = null;
+    if (best.cost <= g.run.money) pick = best;
+    else if ((best.cost - g.run.money) / income > 300) pick = out.find(o => o.cost <= g.run.money);
+    if (!pick) return;
+    const r = pick.act();
+    if (pick.label.startsWith('line') && !(r && r.ok)) return;
+    B.busyUntil = Math.max(B.busyUntil, g.run.time + Bot.HUMAN_DELAY);
   },
 
-  // Generator: yields progress snapshots, returns the final report.
   *runIter(opts = {}) {
     const B = Bot.create(opts);
     const g = B.g;
     const maxT = (opts.maxHours || 6) * 3600;
     const th = Progression.threshold(g.run.planet);
-    let lastHour = 0;
+    let lastHour = 0, lastEarned = 0;
     const hourly = [];
-    let lastEarned = 0;
     while (g.run.time < maxT) {
       for (let i = 0; i < CONFIG.tickRate; i++) Game.tick(g);
       g.events.length = 0;
@@ -373,7 +416,14 @@ const Bot = {
       for (let t = 1; t <= g.run.custTier; t++) Bot.mark(B, 'tier' + (t + 1));
       if (g.run.earned >= th) { Bot.mark(B, 'rebirth'); if (!opts.continueAfterRebirth) break; }
       if (g.run.time - lastHour >= 3600) { lastHour += 3600; hourly.push(g.run.earned - lastEarned); lastEarned = g.run.earned; }
-      if (g.tick % (CONFIG.tickRate * 60) === 0) yield { time: g.run.time, earned: g.run.earned };
+      if (g.tick % (CONFIG.tickRate * 60) === 0) {
+        if (opts.trace && g.tick % (CONFIG.tickRate * 600) === 0) {
+          const sellers = {}; for (const b of g.lists.seller) sellers[b.type] = (sellers[b.type] || 0) + 1;
+          const m = Bot.model(B);
+          opts.trace(Fmt.time(g.run.time) + ' earned ' + Fmt.num(g.run.earned) + ' inc ' + Fmt.num(g.income) + '/s money ' + Fmt.num(g.run.money) + ' lines ' + B.lines.length + ' P ' + Fmt.num(m.P) + ' C ' + Fmt.num(m.C) + ' F ' + Fmt.num(m.F) + ' tier ' + (g.run.custTier + 1) + ' ' + JSON.stringify(sellers) + ' ref ' + (g.lists.refinery || []).length + ' res ' + g.run.research.done.size + ' b ' + g.buildings.size);
+        }
+        yield { time: g.run.time, earned: g.run.earned };
+      }
     }
     return { marks: B.marks, log: B.log, hourly, time: g.run.time, earned: g.run.earned, buildings: g.buildings.size, lines: B.lines.length, sellers: B.sellers.length, planet: g.run.planet, game: g, bot: B };
   },

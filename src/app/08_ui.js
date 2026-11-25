@@ -24,8 +24,9 @@ const UI = {
     $('#btn-center').addEventListener('click', UI.centerCamera);
     $('#tier-badge').addEventListener('click', () => Menus.open('stats'));
     $('#minimap').addEventListener('click', () => UI.openMap());
-    $('#tool-demolish').addEventListener('click', () => Build.setTool('demolish'));
+    $('#tool-demolish').addEventListener('click', () => { Build.setTool('demolish'); if (App.touch && window.innerWidth < 900 && App.tool === 'demolish') UI.collapseBuild(true); });
     $('#tool-select').addEventListener('click', () => Build.setTool('select'));
+    $('#bb-mini').addEventListener('click', () => { UI.collapseBuild(false); UI.refreshBuildBar(true); });
     $('#tool-pipette').addEventListener('click', () => { if (App.selected) { const b = App.selected; Build.setTool({ type: b.type, rot: b.rot, grade: b.grade || 0 }); } else UI.toast('Pipette: Gebäude antippen und dann Pipette, oder Q über einem Gebäude drücken'); });
     $('#research-chip').addEventListener('click', () => Menus.open('research'));
     $('#contracts-chip').addEventListener('click', () => { const t = App.g.lists.terminal && App.g.lists.terminal[0]; if (t) UI.select(t); });
@@ -59,7 +60,7 @@ const UI = {
     const next = ct < 5 ? CONFIG.customers[ct + 1].unlock : null;
     const prev = CONFIG.customers[ct].unlock;
     const pct = next ? U.clamp((g.run.earned - prev) / (next - prev), 0, 1) : 1;
-    $('#tier-badge').innerHTML = 'Kundenstufe<b>' + (ct + 1) + ' · ' + esc(DATA.CUSTOMERS[ct].plural) + '</b><div class="bar"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></div>';
+    $('#tier-badge').innerHTML = 'Kundenstufe<b>' + (ct + 1) + '<span class="long"> · ' + esc(DATA.CUSTOMERS[ct].plural) + '</span></b><div class="bar"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></div>';
     $('#tier-badge').title = next ? 'Nächste Stufe bei ' + Fmt.money(next) + ' Gesamtverkauf (' + Fmt.money(g.run.earned) + ')' : 'Höchste Kundenstufe erreicht';
     const p = g.run.player;
     $('#coords').textContent = Math.floor(p.x) + ', ' + Math.floor(p.y);
@@ -148,7 +149,8 @@ const UI = {
   // ---------------- toasts ----------------
   toast(text, kind = '', ms = 3200) {
     const wrap = $('#toasts');
-    while (wrap.children.length >= 4) wrap.firstChild.remove();
+    const maxToasts = window.innerWidth < 760 ? 2 : 4;
+    while (wrap.children.length >= maxToasts) wrap.firstChild.remove();
     const el = h('div', { class: 'toast ' + kind });
     el.innerHTML = text;
     wrap.append(el);
@@ -188,7 +190,7 @@ const UI = {
     const wrap = $('#bb-cats');
     wrap.innerHTML = '';
     for (const c of DATA.CATEGORIES) {
-      const el = h('button', { class: 'bb-cat' + (c.id === UI.cat ? ' on' : ''), role: 'tab', onclick: () => { UI.cat = c.id; Audio2.play('click'); UI.buildCats(); UI.refreshBuildBar(true); } }, c.icon + ' ' + c.name);
+      const el = h('button', { class: 'bb-cat' + (c.id === UI.cat ? ' on' : ''), role: 'tab', title: c.name, 'aria-label': c.name, onclick: () => { UI.cat = c.id; Audio2.play('click'); UI.buildCats(); UI.refreshBuildBar(true); } }, c.icon, h('span', { class: 'lbl', text: ' ' + c.name }));
       wrap.append(el);
     }
   },
@@ -219,7 +221,7 @@ const UI = {
       card.append(Draw.thumb(it.type, 56, { grade: it.grade }));
       card.append(h('div', { class: 'n', text: name }));
       let ctext, ccls = 'c';
-      if (lock) { ctext = '🔒 ' + lock; ccls += ' lock'; }
+      if (lock) { ctext = '🔒 ' + (lock.startsWith('Forschung') ? 'Forschung' : lock.replace(' nötig', '')); ccls += ' lock'; }
       else if (it.type === 'extractor') { const t0 = Grid.cost(g, 'extractor', { tier: 0 }); ctext = 'ab ' + Fmt.money(t0); if (t0 > g.run.money && !kit) ccls += ' no'; }
       else if (kit > 0) ctext = 'Gratis';
       else { ctext = Fmt.money(cost) + (it.type === 'belt' || it.type === 'path' || it.type === 'fence' ? '/Feld' : ''); if (cost > g.run.money) ccls += ' no'; }
@@ -228,23 +230,40 @@ const UI = {
       if (favIdx >= 0) card.append(h('span', { class: 'fav', text: '★' + (favIdx + 1) }));
       if (kit > 0) card.append(h('span', { class: 'kit', text: '×' + kit }));
       card.addEventListener('click', () => {
-        if (lock) { UI.toast(lock, 'bad'); Audio2.play('error'); return; }
+        if (lock) { UI.toast(lock, 'bad'); Audio2.play('error'); $('#bb-hint').textContent = '🔒 ' + lock + '. ' + def.desc; return; }
         Audio2.play('click');
         Build.setTool({ type: it.type, grade: it.grade });
         UI.refreshBuildBar(true);
         $('#bb-hint').textContent = def.desc;
+        if (App.touch && window.innerWidth < 900) UI.collapseBuild(true);
       });
       card.addEventListener('contextmenu', e => { e.preventDefault(); UI.toggleFavorite(it.type + ':' + it.grade); });
       let lp = null;
       card.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') lp = setTimeout(() => { UI.toggleFavorite(it.type + ':' + it.grade); lp = null; }, 600); });
       card.addEventListener('pointerup', () => { if (lp) clearTimeout(lp); });
       card.addEventListener('pointerleave', () => { if (lp) clearTimeout(lp); });
-      card.addEventListener('mouseenter', () => { $('#bb-hint').textContent = def.desc + (it.type === 'belt' ? ' Durchsatz ' + CONFIG.belt.throughput[it.grade] + ' Items/s.' : ''); });
+      card.addEventListener('mouseenter', () => { $('#bb-hint').textContent = (lock ? '🔒 ' + lock + '. ' : '') + def.desc + (it.type === 'belt' ? ' Durchsatz ' + CONFIG.belt.throughput[it.grade] + ' Items/s.' : ''); });
       wrap.append(card);
     }
     $('#tool-select').classList.toggle('hidden', !g.run.research.done.has('massSelect'));
     $('#tool-demolish').classList.toggle('on', App.tool === 'demolish');
     $('#tool-select').classList.toggle('on', App.tool === 'select');
+  },
+  collapseBuild(on) {
+    const bar = $('#buildbar');
+    bar.classList.toggle('collapsed', !!on);
+    if (on) UI.updateMini();
+  },
+  updateMini() {
+    const mini = $('#bb-mini');
+    const g = App.g, t = App.tool;
+    mini.innerHTML = '';
+    if (t && t.type) {
+      const name = t.type === 'belt' ? DATA.BELT_GRADES[t.grade].name : DATA.BUILDINGS[t.type].name;
+      const cost = t.type === 'extractor' ? Grid.cost(g, 'extractor', { tier: 0 }) : Grid.cost(g, t.type, { grade: t.grade });
+      mini.append(Draw.thumb(t.type, 40, { grade: t.grade }), h('span', { text: name }), h('span', { class: 'cost' + (cost > g.run.money ? ' no' : ''), text: (t.type === 'extractor' ? 'ab ' : '') + Fmt.money(cost) }));
+    } else mini.append(h('span', { text: t === 'demolish' ? '⌫ Abriss-Modus' : t === 'select' ? '▭ Auswahl' : 'Bauen' }));
+    mini.append(h('span', { class: 'up', text: '▲ Auswahl' }));
   },
   toggleFavorite(key) {
     const f = App.settings.favorites;
@@ -260,6 +279,7 @@ const UI = {
     const open = forceOpen === true || (forceOpen === undefined && bar.classList.contains('hidden'));
     if (open) {
       bar.classList.remove('hidden');
+      bar.classList.remove('collapsed');
       Build.enter();
       UI.refreshBuildBar(true);
       Tutorial.onEvent('buildOpen');
@@ -279,6 +299,7 @@ const UI = {
   },
   onToolChange() {
     UI.refreshBuildBar(true);
+    if ($('#buildbar').classList.contains('collapsed')) UI.updateMini();
     UI.updateGhostInfo();
     const t = App.tool;
     let hint = '';

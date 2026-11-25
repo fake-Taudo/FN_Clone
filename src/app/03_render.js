@@ -82,7 +82,8 @@ const Render = {
     if (st === 6) { const gx = ((x % 8) + 8) % 8, gy = ((y % 8) + 8) % 8; if (gx < 0.12 || gy < 0.12) { r += 30; g += 60; b += 80; } }
     if (st === 7 && t.d > 0.55) { r += 40; g += 40; b += 50; }
     if (st === 8 && w.noiseC.noise2(x * 3.1, y * 3.1) > 0.78) { r = 220; g = 220; b = 255; }
-    out[0] = r; out[1] = g; out[2] = b;
+    const sky = P.sky;
+    out[0] = r * 0.95 + sky[0] * 0.05; out[1] = g * 0.95 + sky[1] * 0.05; out[2] = b * 0.95 + sky[2] * 0.05;
   },
   genChunk(g, cx, cy) {
     const S = CONFIG.chunkSize;
@@ -144,8 +145,8 @@ const Render = {
             ctx.beginPath(); ctx.ellipse(x, y, d.size, d.size * 0.82, 0, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = 'rgba(0,0,0,.12)';
             ctx.beginPath(); ctx.ellipse(x + d.size * 0.08, y + d.size * 0.1, d.size * 0.72, d.size * 0.58, 0, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = d.size * 0.1;
-            ctx.beginPath(); ctx.ellipse(x, y, d.size, d.size * 0.82, 0, Math.PI * 0.95, Math.PI * 1.75); ctx.stroke();
+            ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = Math.min(0.12, d.size * 0.05);
+            ctx.beginPath(); ctx.ellipse(x, y, d.size, d.size * 0.82, 0, Math.PI * 1.05, Math.PI * 1.65); ctx.stroke();
             break;
           }
           case 'rock': {
@@ -175,8 +176,14 @@ const Render = {
             break;
           case 'ripple':
             if (z < 14) break;
-            ctx.strokeStyle = 'rgba(255,255,255,.10)'; ctx.lineWidth = 0.06;
-            for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x, y + i * 0.35, d.size, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }
+            ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 0.05; ctx.lineCap = 'round';
+            ctx.beginPath();
+            for (let i = 0; i < 3; i++) {
+              const yy = y + i * 0.3, len = d.size * (0.6 + 0.2 * i);
+              ctx.moveTo(x - len / 2, yy);
+              ctx.bezierCurveTo(x - len / 6, yy - 0.18, x + len / 6, yy + 0.18, x + len / 2, yy);
+            }
+            ctx.stroke();
             break;
         }
         if (st === 5 && d.type === 'pebble' && z >= 18) {
@@ -339,10 +346,6 @@ const Render = {
     const d = App.view.dpr, W = App.view.w * d, H = App.view.h * d;
     const night = Render.dayNight(g);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const sky = Render.palette.sky;
-    // subtle planet tint
-    ctx.fillStyle = 'rgba(' + sky[0] + ',' + sky[1] + ',' + sky[2] + ',0.05)';
-    ctx.fillRect(0, 0, W, H);
     if (night > 0.01) {
       ctx.fillStyle = 'rgba(8,10,40,' + (night * 0.45).toFixed(3) + ')';
       ctx.fillRect(0, 0, W, H);

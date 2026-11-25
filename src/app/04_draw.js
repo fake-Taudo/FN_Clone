@@ -125,6 +125,15 @@ const Draw = {
     const def = DATA.BUILDINGS[b.type];
     const tm = Draw.tm;
     const w = b.w, hh = b.h;
+    if (App.cam.zoom < 13 && !b._thumb && b.id >= 0) {
+      // level of detail: flat blocks when zoomed far out
+      if (b.type === 'belt') { ctx.fillStyle = '#2b2f36'; ctx.fillRect(x, y + 0.12, 1, 0.76); ctx.fillStyle = GRADE_COLORS[b.grade]; ctx.fillRect(x, y + 0.42, 1, 0.16); return; }
+      if (b.type === 'bridge') return;
+      ctx.fillStyle = b.type === 'extractor' ? '#ff8a2f' : def.color;
+      ctx.fillRect(x + 0.08, y + 0.08, w - 0.16, hh - 0.16);
+      ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x + 0.08, y + hh - 0.3, w - 0.16, 0.22);
+      return;
+    }
     switch (b.type) {
       case 'belt': Draw.belt(ctx, g, b, x, y); return;
       case 'extractor': return Draw.extractor(ctx, g, b, x, y);
@@ -630,7 +639,7 @@ const Draw = {
       const w = type === 'bridge' ? 3 : def.w, hh = def.h;
       const scale = size * d / (Math.max(w, hh) + 0.6);
       ctx.setTransform(scale, 0, 0, scale, (size * d - w * scale) / 2, (size * d - hh * scale) / 2);
-      const fake = { type, x: 0, y: 0, rot: 0, w, h: hh, level: 1, grade: opts.grade || 0, items: [], buf: [], inBuf: [], outBuf: [], shelf: new Map(), store: new Map(), total: 0, customers: [], res: opts.res !== undefined ? opts.res : 0, tier: opts.res !== undefined ? DATA.RESOURCES[opts.res].tier : 0, outMask: 15, boost: 1, len: 3, queue: [], outEnabled: true, _sv: -1, shape: 0 };
+      const fake = { _thumb: true, type, x: 0, y: 0, rot: 0, w, h: hh, level: 1, grade: opts.grade || 0, items: [], buf: [], inBuf: [], outBuf: [], shelf: new Map(), store: new Map(), total: 0, customers: [], res: opts.res !== undefined ? opts.res : 0, tier: opts.res !== undefined ? DATA.RESOURCES[opts.res].tier : 0, outMask: 15, boost: 1, len: 3, queue: [], outEnabled: true, _sv: -1, shape: 0 };
       const saveOx = Render.ox, saveOy = Render.oy, saveZoom = App.cam.zoom;
       Render.ox = 0; Render.oy = 0; App.cam.zoom = 40;
       const fakeG = { topoVersion: -2, run: { research: { active: null }, contracts: [] }, mods: { siloCap: 1 } };

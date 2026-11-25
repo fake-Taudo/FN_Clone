@@ -77,14 +77,15 @@ const CONFIG = {
 
   // ---- customers ----
   customers: [
-    { interval: [6, 12],   factor: 1.0, qty: [3, 8],       unlock: 0 },
-    { interval: [20, 35],  factor: 1.5, qty: [15, 40],     unlock: 2000 },
-    { interval: [45, 70],  factor: 2.5, qty: [60, 150],    unlock: 25000 },
-    { interval: [90, 140], factor: 4.0, qty: [250, 600],   unlock: 120000 },
-    { interval: [180, 300], factor: 8.0, qty: [1000, 2500], unlock: 400000 },
+    { interval: [8, 14],    factor: 1.0, qty: [3, 8],       unlock: 0 },
+    { interval: [30, 50],   factor: 1.5, qty: [12, 30],     unlock: 2000 },
+    { interval: [60, 90],   factor: 2.5, qty: [45, 110],    unlock: 25000 },
+    { interval: [120, 180], factor: 4.0, qty: [180, 420],   unlock: 120000 },
+    { interval: [240, 360], factor: 8.0, qty: [700, 1700],  unlock: 400000 },
     { interval: [480, 720], factor: 20,  qty: [5000, 20000], unlock: 1000000 }
   ],
   patience: [20, 60],
+  crowding: [0.15, 0.12, 0.10, 0.08, 0.06], // arrival rate per seller / (1 + c * (sellers of that type - 1))
   satisfiedBonus: 0.10,
   pathBonusPerTile: 0.03, pathBonusMax: 0.6, pathRadius: 9,
   contractSlots: 3, contractDuration: 25 * 60,

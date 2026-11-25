@@ -109,7 +109,11 @@ const Input = {
       if (Input.pointers.size === 2) {
         // second finger: start pinch, cancel single-finger actions
         if (Input.drag) Input.cancelDrag();
-        if (Input.joy && Input.joy.id !== e.pointerId) { /* keep joystick, pinch with others */ }
+        if (Input.joy) {
+          const jp = Input.pointers.get(Input.joy.id);
+          // a joystick touch that just started and has not moved is really the first finger of a pinch
+          if (jp && performance.now() - jp.t < 350 && !jp.moved) Input.joyEnd();
+        }
         const ps = [...Input.pointers.values()].filter(q => !Input.joy || q.id !== Input.joy.id);
         if (ps.length === 2) Input.pinch = { d: Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y), zoom: App.cam.zoom, mx: (ps[0].x + ps[1].x) / 2, my: (ps[0].y + ps[1].y) / 2 };
         return;

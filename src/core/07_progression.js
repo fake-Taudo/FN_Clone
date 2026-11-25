@@ -48,7 +48,7 @@ const Progression = {
   researchTime(g, r) {
     let speed = 0;
     for (const b of g.lists.lab || []) speed += Math.pow(1.3, b.level - 1);
-    return r.time * CONFIG.researchTimeFactor / Math.max(0.0001, speed * g.mods.researchSpeed);
+    return r.time * CONFIG.researchTimeFactor / (Math.max(1, speed) * g.mods.researchSpeed);
   },
   researchState(g, r) {
     if (g.run.research.done.has(r.id)) return 'done';
@@ -75,7 +75,7 @@ const Progression = {
   },
   tickResearch(g, dt) {
     const a = g.run.research.active;
-    if (!a) return;
+    if (!a || !(g.lists.lab && g.lists.lab.length)) return; // paused without a lab
     const r = DATA.RESEARCH_BY_ID[a.id];
     const total = Progression.researchTime(g, r);
     if (!isFinite(total)) return;
