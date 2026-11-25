@@ -316,5 +316,5 @@ const MainLoop = {
 };
 
 // Small handle for automated tests and power users (read-only use recommended).
-window.__AO__ = { App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
+window.__AO__ = { Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
 MainLoop.boot();

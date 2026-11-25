@@ -4794,7 +4794,14 @@ const Col = {
   shade(hex, f) { return f >= 0 ? Col.mix(hex, '#ffffff', f) : Col.mix(hex, '#000000', -f); },
   rgba(hex, a) { const c = Col.rgb(hex); return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; },
   hsl(h, s, l) { return 'hsl(' + (h % 360) + ',' + s + '%,' + l + '%)'; },
-  prism(t, off = 0) { return Col.hsl(((t * 90 + off) % 360 + 360) % 360, 90, 72); }
+  // Hex colour (not an hsl() string) so it can be mixed and shaded like every other colour.
+  hslHex(h, s, l) {
+    s /= 100; l /= 100;
+    const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+    return Col.hex(f(0) * 255, f(8) * 255, f(4) * 255);
+  },
+  prism(t, off = 0) { return Col.hslHex(Math.round(((t * 90 + off) % 360 + 360) % 360), 90, 72); }
 };
 
 const Sprites = {
@@ -9117,7 +9124,7 @@ const MainLoop = {
 };
 
 // Small handle for automated tests and power users (read-only use recommended).
-window.__AO__ = { App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
+window.__AO__ = { Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
 MainLoop.boot();
 
 })();
