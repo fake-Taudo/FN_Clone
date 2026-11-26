@@ -1,6 +1,6 @@
 {
-  "updated": "2026-11-26T00:37:21.230Z",
-  "currentPhase": 33,
+  "updated": "2026-11-26T06:58:02.569Z",
+  "currentPhase": 30,
   "phases": [
     {
       "id": 1,
@@ -150,27 +150,27 @@
     {
       "id": 26,
       "name": "Welt 6: Farbe & Materialdetails",
-      "status": "active"
+      "status": "done"
     },
     {
       "id": 27,
       "name": "Welt 7: Spuren, Trampelpfade, Baustellenboden",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 28,
       "name": "Welt 8: Atmosphäre & Tag/Nacht",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 29,
       "name": "Welt 9: Landmarken & Minimap",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 30,
       "name": "Welt 10: Planeten 2–8 und prozedurale",
-      "status": "open"
+      "status": "done"
     },
     {
       "id": 31,
@@ -185,7 +185,7 @@
     {
       "id": 33,
       "name": "Welt 13: Zoom-LOD, Performance & QS",
-      "status": "active"
+      "status": "done"
     }
   ],
   "log": [
@@ -316,6 +316,30 @@
     {
       "time": "2026-11-26T00:37:21.230Z",
       "text": "QS: Frame-Serien, Determinismus, Overlays, Audio-Pegel, Robustheit; Terrain-Messungen laufen"
+    },
+    {
+      "time": "2026-11-26T06:43:06.098Z",
+      "text": "6 Materialien mit weichem Splat, regionale Farbzonen, entsättigte Paletten, Rippel/Risse/Kies/Salz als Pixeldetail"
+    },
+    {
+      "time": "2026-11-26T06:43:06.126Z",
+      "text": "Fußspuren L/R, Rover-/Alienspuren, Trampelpfade als Abnutzungskarte (gedrosselt), Fundamentzonen"
+    },
+    {
+      "time": "2026-11-26T06:43:06.153Z",
+      "text": "Höhendunst, Wolkenschatten als weiche Flecken, Staubteufel, Sanddrift, Nacht-Emission je Planet"
+    },
+    {
+      "time": "2026-11-26T06:43:06.175Z",
+      "text": "Becken, Flussbetten, Canyon, Tafelberge, Staubteufelspuren, Wracks; Landmarkensymbole auf der Karte"
+    },
+    {
+      "time": "2026-11-26T06:43:06.197Z",
+      "text": "Planeten 1-8 eigene Gelände-Stile, dunkle Planeten mit additivem Licht, prozedurale ab 9"
+    },
+    {
+      "time": "2026-11-26T06:58:02.569Z",
+      "text": "QS abgeschlossen: Nähte, Variation, Licht, Leere, Figur-Grund, 20-Seed-Regression, Einkommen, Performance vorher/nachher, Intro-Tests; Bögen und Bericht im Paket"
     }
   ]
 }

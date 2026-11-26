@@ -357,3 +357,14 @@ Intro (src/app/15_intro.js, 14b_planetcore.js, 14c_lander.js)
   Austrittsblitz durch weiches Leuchten (< 10 % je 0,2 s) ersetzt.
 - Debug: ?intro=force (Wegwerfspiel, nichts wird gespeichert), ?intro=t:5.5
   (springt und hält), &seed=N.
+
+Messwerte (Headless-Chromium ohne GPU; Details: exports/map-detailtiefe/qa-bericht-map.txt)
+- Nähte: Sprung über Chunkgrenzen 1,14-1,30 x normaler Pixelsprung (max 1,38).
+- 0 identische Nachbar-Kraterstempel in 200 Chunks; Licht: 40/40 Krater richtig.
+- Leere-Test (400x400 px): 83-100 % der Fenster je Planet mit >= 2 Materialien
+  und Detailobjekten; Figur-Grund >= 3,4:1 auf allen 8 Planeten.
+- 20 Seeds: Vorkommen und Glücksstart identisch; Einkommen 0,000 % Abweichung.
+- Hauptthread +0,4 bis +1,8 ms pro Frame; FPS-Mediane -4 % bis -18 % bzw. +2 %
+  bei ±10-15 % Messrauschen ohne GPU; Chunkwechsel ohne Frames über 33 ms;
+  erster Titel-Frame 83 ms.
+- Intro 15 s (reduziert 5,5 s), Überspringen bytegleich, Ton-Spitze -6,75 dBFS.

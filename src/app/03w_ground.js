@@ -73,28 +73,51 @@ const Ground = {
     const S = CONFIG.chunkSize, cx = Math.floor(x / S), cy = Math.floor(y / S);
     const key = cx + ',' + cy;
     let w = Ground.wear.get(key);
-    if (!w) { w = { a: new Float32Array(S * S), c: null, dirty: true, cx, cy }; Ground.wear.set(key, w); }
-    const tx = Math.floor(x) - cx * S, ty = Math.floor(y) - cy * S;
-    w.a[ty * S + tx] = Math.min(1, w.a[ty * S + tx] + amount);
-    w.dirty = true;
+    if (!w) { w = { a: new Float32Array(S * S), c: null, dirty: true, cx, cy, built: 0, bb: null }; Ground.wear.set(key, w); }
+    const tx = Math.floor(x) - cx * S, ty = Math.floor(y) - cy * S, i = ty * S + tx;
+    const before = Math.round(w.a[i] * 120);
+    w.a[i] = Math.min(1, w.a[i] + amount);
+    if (Math.round(w.a[i] * 120) !== before) w.dirty = true;
   },
+  // trampled paths: one small overlay per worn chunk, rebuilt at most every 0.5 s and drawn only over the worn area
   drawWear(ctx, vr) {
     const S = CONFIG.chunkSize, col = Col.rgb(Col.shade(Render.palette.ground[0], -0.25));
     for (const w of Ground.wear.values()) {
       if ((w.cx + 1) * S < vr.x0 || w.cx * S > vr.x1 || (w.cy + 1) * S < vr.y0 || w.cy * S > vr.y1) continue;
-      if (w.dirty || !w.c) {
-        w.dirty = false;
+      if ((w.dirty && App.now - w.built > 500) || !w.c) {
+        w.dirty = false; w.built = App.now;
         if (!w.c) w.c = Art.canvas(S, S);
         const x = w.c.getContext('2d'), img = x.createImageData(S, S);
-        for (let i = 0; i < S * S; i++) { const v = w.a[i]; img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = Math.min(1, v) * 120; }
+        let x0 = S, y0 = S, x1 = -1, y1 = -1;
+        for (let i = 0; i < S * S; i++) {
+          const v = w.a[i], al = Math.min(1, v) * 120;
+          img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = al;
+          if (al >= 1) { const xx = i % S, yy = (i / S) | 0; if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; }
+        }
         x.putImageData(img, 0, 0);
+        w.bb = x1 < 0 ? null : [Math.max(0, x0 - 1), Math.max(0, y0 - 1), Math.min(S, x1 + 2), Math.min(S, y1 + 2)];
       }
+      if (!w.bb) continue;
+      const b = w.bb;
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(w.c, w.cx * S - Render.ox, w.cy * S - Render.oy, S, S);
+      ctx.drawImage(w.c, b[0], b[1], b[2] - b[0], b[3] - b[1], w.cx * S + b[0] - Render.ox, w.cy * S + b[1] - Render.oy, b[2] - b[0], b[3] - b[1]);
     }
   },
+  // slow decay (paths fade over many minutes): evaluated every 2 s, marked dirty only on a visible change
   decayWear(dt) {
-    for (const w of Ground.wear.values()) { let any = false; for (let i = 0; i < w.a.length; i++) if (w.a[i] > 0) { w.a[i] = Math.max(0, w.a[i] - dt * 0.0008); any = true; } if (any) w.dirty = true; }
+    Ground.decayAcc = (Ground.decayAcc || 0) + dt;
+    if (Ground.decayAcc < 2) return;
+    const d = Ground.decayAcc * 0.0008; Ground.decayAcc = 0;
+    for (const [k, w] of Ground.wear) {
+      let any = false, changed = false;
+      for (let i = 0; i < w.a.length; i++) {
+        const v = w.a[i]; if (v <= 0) continue;
+        const nv = Math.max(0, v - d); if (Math.round(nv * 120) !== Math.round(v * 120)) changed = true;
+        w.a[i] = nv; if (nv > 0) any = true;
+      }
+      if (changed) w.dirty = true;
+      if (!any) Ground.wear.delete(k);
+    }
   },
   // ---------------- foundation zones ----------------
   NO_FOUND: { belt: 1, path: 1, fence: 1, lamp: 1, flag: 1, beacon: 1, bridge: 1, splitter: 1, merger: 1, crossing: 1, fsplitter: 1, osplitter: 1 },
@@ -122,7 +145,7 @@ const Ground = {
     });
   },
   drawFoundations(ctx, list) {
-    if (App.cam.zoom < 11) return;
+    if (App.cam.zoom < 18) return;
     const ppt = Art.bucket(Render.ppt(), 48);
     for (const b of list) {
       if (Ground.NO_FOUND[b.type]) continue;
@@ -154,32 +177,28 @@ const Ground = {
       return { canvas: c, ox: bb.x0 - M, oy: bb.y0 - M, w: W, h: H };
     });
   },
-  // ---------------- atmosphere: drifting cloud shadows (max ~8 % modulation) ----------------
-  cloudTex: null,
+  // ---------------- atmosphere ----------------
+  // drifting cloud shadows (<= 8 %): a few soft blobs per 90-tile cell instead of a full-screen texture,
+  // so the raster cost follows the shaded area only; far and medium zoom only
   clouds(ctx, tm) {
     if (App.quality === 'low' || App.settings.reducedFx) return;
-    if (!Ground.cloudTex) {
-      const N = 128, c = Art.canvas(N, N), x = c.getContext('2d'), img = x.createImageData(N, N);
-      TerrainCore.init();
-      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-        // tileable: sample noise on a torus
-        const a = i / N * 6.283, b = j / N * 6.283;
-        const v = TerrainCore.fbm(Math.cos(a) * 1.3 + 9, Math.sin(a) * 1.3 + Math.cos(b) * 1.3, 4242 + Math.round(Math.sin(b) * 0), 3) + TerrainCore.gn(Math.cos(b) * 1.7, Math.sin(b) * 1.7 + Math.sin(a), 777) * 0.6;
-        const k = Math.max(0, Math.min(1, (v + 0.1) * 1.6));
-        img.data[(j * N + i) * 4 + 3] = k * 255;
+    const zk = 1 - Math.max(0, Math.min(1, (App.cam.zoom - 10) / 6));
+    if (zk <= 0.02) return;
+    const T = 90, w = Render.look.wind || 0;
+    const sx = tm * 0.9 * Math.cos(w), sy = tm * 0.9 * Math.sin(w);
+    const vr = Render.visibleRect(24);
+    const spr = FxLib.tinted('soft', 0, '#2a1830');
+    ctx.save(); ctx.globalAlpha = 0.075 * zk;
+    for (let cy = Math.floor((vr.y0 - sy) / T); cy <= Math.floor((vr.y1 - sy) / T); cy++) for (let cx = Math.floor((vr.x0 - sx) / T); cx <= Math.floor((vr.x1 - sx) / T); cx++) {
+      for (let i = 0; i < 4; i++) {
+        const h = RNG.hash(cx, cy, i * 131 + 7);
+        if ((h & 255) < 90) continue;
+        const bx = cx * T + ((h >>> 8) & 255) / 255 * T + sx, by = cy * T + ((h >>> 16) & 255) / 255 * T + sy;
+        const rw = 12 + ((h >>> 24) & 15) * 1.4, rh = rw * (0.55 + ((h >>> 4) & 7) * 0.05);
+        if (bx + rw < vr.x0 || bx - rw > vr.x1 || by + rh < vr.y0 || by - rh > vr.y1) continue;
+        ctx.drawImage(spr, bx - rw - Render.ox, by - rh - Render.oy, rw * 2, rh * 2);
       }
-      x.putImageData(img, 0, 0);
-      Ground.cloudTex = c;
     }
-    const T = 90; // tiles per texture repeat
-    const w = Render.look.wind || 0;
-    const sx = ((tm * 0.9 * Math.cos(w)) % T + T) % T, sy = ((tm * 0.9 * Math.sin(w)) % T + T) % T;
-    const vr = Render.visibleRect(2);
-    const x0 = Math.floor((vr.x0 - sx) / T) * T + sx, y0 = Math.floor((vr.y0 - sy) / T) * T + sy;
-    ctx.save(); ctx.globalAlpha = 0.08; ctx.globalCompositeOperation = 'multiply';
-    ctx.imageSmoothingEnabled = true;
-    const tint = Ground.cloudTint || (Ground.cloudTint = (() => { const c = Art.canvas(128, 128), x = c.getContext('2d'); x.drawImage(Ground.cloudTex, 0, 0); x.globalCompositeOperation = 'source-in'; x.fillStyle = '#2a1830'; x.fillRect(0, 0, 128, 128); return c; })());
-    for (let y = y0; y < vr.y1; y += T) for (let x = x0; x < vr.x1; x += T) ctx.drawImage(tint, x - Render.ox, y - Render.oy, T, T);
     ctx.restore();
   },
   // sand blowing over dune crests near the player

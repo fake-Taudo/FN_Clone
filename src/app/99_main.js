@@ -346,5 +346,5 @@ const MainLoop = {
 };
 
 // Small handle for automated tests and power users (read-only use recommended).
-window.__AO__ = { Art, ItemArt, FxLib, TerrainCore, TerrainSys, RockArt, LanderArt, PlanetCore, PlanetView, Intro, IntroAudio, TitleScene, BuildingArt, BeltArt, CharArt, DepositArt, DecorArt, PlanetArt: typeof PlanetArt !== 'undefined' ? PlanetArt : null, ALIEN_SPECIES, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
+window.__AO__ = { Art, ItemArt, FxLib, TerrainCore, TerrainSys, RockArt, LanderArt, PlanetCore, PlanetView, Intro, IntroAudio, TitleScene, Ground, Sorter, Collide, BuildingArt, BeltArt, CharArt, DepositArt, DecorArt, PlanetArt: typeof PlanetArt !== 'undefined' ? PlanetArt : null, ALIEN_SPECIES, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
 MainLoop.boot();
