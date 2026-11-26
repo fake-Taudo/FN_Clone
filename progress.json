@@ -1,6 +1,6 @@
 {
-  "updated": "2026-11-25T23:55:44.653Z",
-  "currentPhase": 32,
+  "updated": "2026-11-26T00:37:21.230Z",
+  "currentPhase": 33,
   "phases": [
     {
       "id": 1,
@@ -180,12 +180,12 @@
     {
       "id": 32,
       "name": "Welt 12: Intro-Sequenz neu",
-      "status": "active"
+      "status": "done"
     },
     {
       "id": 33,
       "name": "Welt 13: Zoom-LOD, Performance & QS",
-      "status": "open"
+      "status": "active"
     }
   ],
   "log": [
@@ -308,6 +308,14 @@
     {
       "time": "2026-11-25T23:55:44.653Z",
       "text": "Intro: Titel, Planet im Worker, Versorgungslander, Landesequenz"
+    },
+    {
+      "time": "2026-11-26T00:37:21.201Z",
+      "text": "Intro neu: lebendiger Titel (Planet im Worker, 3 Sternebenen, Satellit), Versorgungslander ARES-01, 6 Shots in 15 s, Wolkenübergang ohne Weißblitz, echte Welt im Anflug, Landung mit Staub/Brandfleck, Ausstieg, Glücksstart in der Welt, Ton mit Limiter, Überspringen = identischer Endzustand"
+    },
+    {
+      "time": "2026-11-26T00:37:21.230Z",
+      "text": "QS: Frame-Serien, Determinismus, Overlays, Audio-Pegel, Robustheit; Terrain-Messungen laufen"
     }
   ]
 }

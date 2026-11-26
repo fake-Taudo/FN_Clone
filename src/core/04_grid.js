@@ -153,6 +153,8 @@ const Grid = {
       const id = g.occ.get(U.tileKey(t[0], t[1]));
       if (id !== undefined && !(opts.ignore && opts.ignore.has(id))) return { ok: false, reason: 'Blockiert' };
     }
+    const LD = g.run.lander;
+    if (LD) for (const t of tiles) if (t[0] >= LD.x - 1 && t[0] < LD.x + 1 && t[1] >= LD.y - 1 && t[1] < LD.y + 1) return { ok: false, reason: 'Versorgungslander' };
     if (type === 'bridge') {
       if (len < 2 || len > 6) return { ok: false, reason: 'Brücke: 1 bis 4 Felder Abstand' };
     }

@@ -395,6 +395,7 @@ const Menus = {
     wrap.append(h('h3', { text: 'Grafik' }));
     seg('Qualität', 'quality', [['auto', 'Automatisch'], ['high', 'Hoch'], ['medium', 'Mittel'], ['low', 'Niedrig']], () => { if (s.quality !== 'auto') App.quality = s.quality; Render.chunks.clear(); });
     sw('Reduzierte Effekte', 'Weniger Partikel und Animationen', 'reducedFx');
+    sw('Kamerawackeln aus', 'Kein Wackeln bei Eintritt und Landung', 'noShake');
     sw('Tag/Nacht-Zyklus', 'Rein optisch', 'dayNight');
     sw('Wetter und Staubstürme', 'Rein optisch', 'weather');
     sw('Minikarte anzeigen', null, 'minimap');
@@ -413,7 +414,8 @@ const Menus = {
       h('button', { class: 'btn danger', onclick: () => MainLoop.wipeSave() }, '🗑 Spielstand löschen'));
     wrap.append(io, btns);
     wrap.append(h('h3', { text: 'Tutorial' }));
-    wrap.append(h('div', { class: 'ip-actions' }, h('button', { class: 'btn', onclick: () => { Tutorial.restart(); UI.closeModal(); } }, 'Tutorial neu starten')));
+    wrap.append(h('div', { class: 'ip-actions' }, h('button', { class: 'btn', onclick: () => { Tutorial.restart(); UI.closeModal(); } }, 'Tutorial neu starten'),
+      h('button', { class: 'btn', onclick: () => { UI.closeModal(); Intro.begin(App.g, { replay: true }); } }, 'Intro erneut ansehen')));
     wrap.append(h('p', { class: 'muted', style: { marginTop: '14px' }, text: GAME_TITLE + ' · Version ' + GAME_VERSION + ' · Spielstand-Format ' + SAVE_VERSION + ' · Währung: ' + CURRENCY_NAME + ' (' + CURRENCY_SHORT + ')' }));
     wrap.append(h('p', { class: 'muted', text: 'Tastatur: WASD laufen · Shift sprinten · B Bauen · R Drehen · Q Pipette · F Scanner · M Karte · Z/Y Rückgängig/Wiederholen · Entf Abreißen · 1–9 Favoriten · Shift+Ziehen Auswahl · Strg+Shift+D Debug' }));
     body.append(wrap);

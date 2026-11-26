@@ -19,7 +19,7 @@ const HTML = 'file://' + path.join(__dirname, '..', 'index.html');
   await page.evaluate(() => { const A = window.__AO__; A.UI.closeModal(); A.App.running = false; });
   const files = await page.evaluate(() => {
     const A = window.__AO__;
-    const { Draw, FX, Render, DATA, Grid, World, Game, App, ItemArt, BuildingArt, BeltArt, CharArt, DepositArt, FxLib, PlanetArt, Art } = A;
+    const { Draw, FX, Render, DATA, Grid, World, Game, App, ItemArt, BuildingArt, BeltArt, CharArt, DepositArt, FxLib, PlanetArt, Art, TerrainCore, RockArt, LanderArt, CONFIG } = A;
     const out = [];
     const R0 = 'texturen-neu/';
     const slug = s => s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -172,19 +172,26 @@ const HTML = 'file://' + path.join(__dirname, '..', 'index.html');
     for (const k of [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 15]) {
       const pg = Game.create(meta, k);
       const P = pg.world.planet;
-      Render.setPlanet(P);
+      Render.setPlanet(P, pg.world.seed);
       const pn = 'planet' + String(k).padStart(2, '0') + '_' + slug(P.name);
-      save('planeten/' + pn + '_gelaende-chunk.png', Render.genChunk(pg, 3, 2));
+      // baked terrain (same pipeline as the game: height field, craters, dunes, materials, lighting)
+      const TP = TerrainCore.params(P, pg.world.seed); TP.landing = [CONFIG.landing.x, CONFIG.landing.y];
+      const toCanvas = r => { const cc = canvas(r.w, r.h); cc.getContext('2d').putImageData(new ImageData(r.rgba, r.w, r.h), 0, 0); return cc; };
+      const depsOf = (cx, cy) => { const S = CONFIG.chunkSize; return World.depositsInRect(pg.world, cx * S - 5, cy * S - 5, (cx + 1) * S + 5, (cy + 1) * S + 5).map(d => { let sx = 0, sy = 0; for (const t of d.tiles) { sx += t[0] + 0.5; sy += t[1] + 0.5; } return { x: sx / d.tiles.length, y: sy / d.tiles.length, r: 0.7 + Math.sqrt(d.tiles.length) * 0.55, tier: d.tier, col: DATA.RESOURCES[d.res].color }; }); };
+      save('planeten/' + pn + '_gelaende-chunk.png', toCanvas(TerrainCore.bake({ cx: 3, cy: 2, S: 32, res: 20, P: TP, deps: depsOf(3, 2) })));
       const T = 16, N = 64;
       const c = canvas(N * T, N * T), x = c.getContext('2d');
-      x.setTransform(T, 0, 0, T, 0, 0);
       const cx0 = 2, cy0 = 1;
       Render.ox = cx0 * 32; Render.oy = cy0 * 32;
       App.cam.zoom = 16;
-      for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) x.drawImage(Render.genChunk(pg, cx0 + i, cy0 + j), i * 32, j * 32, 32.02, 32.02);
+      for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
+        const r = TerrainCore.bake({ cx: cx0 + i, cy: cy0 + j, S: 32, res: T, P: TP, deps: depsOf(cx0 + i, cy0 + j) });
+        x.setTransform(1, 0, 0, 1, 0, 0); x.drawImage(toCanvas(r), i * 32 * T, j * 32 * T);
+        x.setTransform(T, 0, 0, T, -Render.ox * T, -Render.oy * T);
+        for (const pr of r.props) RockArt.draw(x, pr, 0, 0, T);
+      }
+      x.setTransform(T, 0, 0, T, 0, 0);
       const vr = { x0: cx0 * 32, y0: cy0 * 32, x1: cx0 * 32 + N, y1: cy0 * 32 + N };
-      Render.drawGrain(x, vr);
-      Render.drawDecor(x, pg, vr);
       const deps = World.depositsInRect(pg.world, vr.x0, vr.y0, vr.x1, vr.y1);
       for (const d of deps) { const s = DepositArt.sprite(d, 16); x.drawImage(s.canvas, s.ox - Render.ox, s.oy - Render.oy, s.w, s.h); }
       noRandom(() => { for (const d of deps) DepositArt.dynamic(x, d, 0.5, 0, 16); });
@@ -193,7 +200,13 @@ const HTML = 'file://' + path.join(__dirname, '..', 'index.html');
       if (PlanetArt) PlanetArt.draw(d.getContext('2d'), 256, 256, 220, P, 0.3); else FX.drawPlanet(d.getContext('2d'), 256, 256, 220, P, 0);
       save('planeten/' + pn + '_kugel.png', d);
     }
-    Render.setPlanet(g.world.planet);
+    Render.setPlanet(g.world.planet, g.world.seed);
+    // ---- supply lander ARES-01 (intro and landmark) ----
+    { const c = canvas(768, 640), x = c.getContext('2d'); x.setTransform(128, 0, 0, 128, 384, 435); LanderArt.top(x, { legs: 1, hatch: 1, wings: 1, soot: 0.8, tm: 0, lights: false }); save('lander/versorgungslander_draufsicht.png', c); }
+    { const c = canvas(768, 640), x = c.getContext('2d'); x.setTransform(128, 0, 0, 128, 384, 400); LanderArt.plumeTop(x, 1.8, 1, 0.4); LanderArt.top(x, { legs: 0.4, hatch: 0, wings: 0, soot: 0.8, heat: 1, tm: 0 }); save('lander/versorgungslander_anflug.png', c); }
+    { const c = canvas(640, 640), x = c.getContext('2d'); x.fillStyle = '#07050b'; x.fillRect(0, 0, 640, 640); x.setTransform(300, 0, 0, 300, 320, 380); LanderArt.profile(x, { legs: 0, wings: 1, tm: 0 }); save('lander/versorgungslander_profil_orbit.png', c); }
+    { const c = canvas(640, 640), x = c.getContext('2d'); x.fillStyle = '#07050b'; x.fillRect(0, 0, 640, 640); x.setTransform(240, 0, 0, 240, 320, 330); x.rotate(-0.6); LanderArt.plasma(x, 1, 0.3, 'back'); LanderArt.profile(x, { legs: 0, wings: 0, soot: 0.6, tm: 0.3 }); LanderArt.plasma(x, 1, 0.3, 'front'); save('lander/versorgungslander_eintritt.png', c); }
+    { const s = LanderArt.scorch(64); const c = canvas(s.S, s.S); c.getContext('2d').fillStyle = '#a87a5a'; c.getContext('2d').fillRect(0, 0, s.S, s.S); c.getContext('2d').drawImage(s.canvas, 0, 0); save('lander/brandfleck_mit_beinabdruecken.png', c); }
     App.cam.zoom = 64;
     // ---- deposits for each rarity tier ----
     for (let t = 0; t < 8; t++) {

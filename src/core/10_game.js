@@ -61,7 +61,7 @@ const Game = {
         silo: kitLvl >= 2 ? 1 : 0, refinery1: kitLvl >= 2 ? 1 : 0, lab: kitLvl >= 3 ? 1 : 0
       },
       minedRun: new Array(8).fill(0), soldRun: 0,
-      startShown: false
+      startShown: false, luckyRevealSeen: false, lander: null
     };
     Progression.computeMods(g);
     World.discover(world, L.x, L.y, CONFIG.viewDiscoverRadius + 6);

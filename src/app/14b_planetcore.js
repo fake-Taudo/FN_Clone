@@ -26,15 +26,17 @@ const PlanetCore = {
     const rgb = new Uint8ClampedArray(TW * TH * 3), em = new Uint8ClampedArray(TW * TH), cl = new Uint8ClampedArray(TW * TH);
     const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
     // a few big craters and one long canyon scar (Ares-like worlds)
-    const craters = [[0.6, 0.2, 0.62, 0.16], [2.4, -0.4, 0.55, 0.11], [4.1, 0.35, 0.6, 0.13]];
-    for (let j = 0; j < TH; j++) {
+    const craters = [[0.6, -0.95, 0.62, 0.07], [2.4, -1.05, 0.55, 0.045], [4.1, -0.8, 0.6, 0.06], [5.3, -1.2, 0.5, 0.035], [1.5, -0.88, 0, 0.03], [3.3, -0.92, 0, 0.05]];
+    // only the rows that can be seen (the title shows the upper cap): j0..j1
+    const j0 = Math.max(0, job.j0 | 0), j1 = Math.min(TH, job.j1 === undefined ? TH : job.j1 | 0);
+    for (let j = j0; j < j1; j++) {
       const lat = (j / (TH - 1) - 0.5) * Math.PI, cla = Math.cos(lat), sla = Math.sin(lat);
       for (let i = 0; i < TW; i++) {
         const lon = i / TW * Math.PI * 2;
         const x = cla * Math.cos(lon), y = sla, z = cla * Math.sin(lon);
-        const wx = x + 0.35 * (P.fbm(x * 1.5 + 3, y * 1.5, z * 1.5, s + 3, 3) - 0.5), wz = z + 0.35 * (P.fbm(x * 1.5, y * 1.5 + 7, z * 1.5, s + 4, 3) - 0.5);
+        const wx = x + 0.35 * (P.fbm(x * 1.5 + 3, y * 1.5, z * 1.5, s + 3, 2) - 0.5), wz = z + 0.35 * (P.fbm(x * 1.5, y * 1.5 + 7, z * 1.5, s + 4, 2) - 0.5);
         const n = P.fbm(wx * 2.4 + 5, y * 2.4 + 5, wz * 2.4 + 5, s, 5);
-        const n2 = P.fbm(x * 6 + 11, y * 6 + 11, z * 6 + 11, s + 9, 4);
+        const n2 = P.fbm(x * 6 + 11, y * 6 + 11, z * 6 + 11, s + 9, 3);
         let col, e = 0;
         if (st === 'gas') {
           const band = Math.sin(lat * 9 + (n - 0.5) * 5 + (n2 - 0.5) * 2);
@@ -43,33 +45,35 @@ const PlanetCore = {
           col = mix(pal[a], pal[Math.min(3, a + 1)], f);
           col = mix(col, C[0], 0.2);
         } else {
-          // dark volcanic regions with soft organic edges, bright dust plains, fine dust bands
-          const dark = P.ss(0.47, 0.58, n);
-          col = mix(C[2], C[0], dark * 0.85);
-          col = mix(col, C[3], P.ss(0.58, 0.72, n2) * 0.25);
-          col = mix(col, C[4], P.ss(0.35, 0.25, n) * 0.5);
+          // same materials as the ground: bright dust plains, darker bedrock regions with soft
+          // organic edges, sand seas, gravel lowlands, regional tint zones
+          const dark = P.ss(0.47, 0.6, n);
+          col = mix(C[0], C[4], dark * 0.8);
+          col = mix(col, C[1], P.ss(0.58, 0.72, n2) * 0.3);
+          col = mix(col, C[3], P.ss(0.36, 0.26, n) * 0.45);
+          col = mix(col, C[7], P.ss(0.45, 0.7, P.vn(x * 2.2 + 9, y * 2.2, z * 2.2, s + 41)) * 0.3);
           const bands = Math.sin(lat * 22 + n * 6) * 0.5 + 0.5;
-          col = mix(col, C[2], bands * 0.08);
-          if (st === 'patina') col = mix(col, C[6], P.ss(0.36, 0.28, n));
+          col = mix(col, C[2], bands * 0.1);
+          if (st === 'patina') col = mix(col, C[5], P.ss(0.36, 0.28, n));
           if (st === 'ice') { const rid = Math.abs(P.fbm(x * 4, y * 4, z * 4, s + 21, 3) - 0.5); col = mix(col, C[5], P.ss(0.03, 0.0, rid) * 0.7); }
           if (st === 'lava') { const rid = Math.abs(P.fbm(x * 3.5, y * 3.5, z * 3.5, s + 22, 4) - 0.5); e = P.ss(0.045, 0.0, rid); col = mix(col, C[6], e * 0.6); }
-          if (st === 'jungle') col = mix(col, C[6], P.ss(0.45, 0.6, n2) * 0.35);
-          if (st === 'crystal') { const c2 = Math.floor(n * 9) / 9; col = mix(C[1], C[2], c2); if (n2 > 0.7) e = (n2 - 0.7) * 2; }
+          if (st === 'jungle') col = mix(col, C[5], P.ss(0.45, 0.6, n2) * 0.35);
+          if (st === 'crystal') { const f9 = n * 9, c2 = (Math.floor(f9) + P.ss(0.35, 0.65, f9 - Math.floor(f9))) / 9; col = mix(C[1], C[2], c2); if (n2 > 0.7) e = (n2 - 0.7) * 2; }
           if (st === 'dark') { const sw = P.fbm(x * 1.6 + 3, y * 3 + 3, z * 1.6 + 3, s + 7, 4); col = mix(col, C[6], P.ss(0.58, 0.75, sw) * 0.6); e = P.ss(0.6, 0.8, sw) * 0.6; }
           // canyon scar (a long, soft groove)
-          if (st === 'rocky' || st === 'patina') { const cy = Math.abs(y - 0.05 * Math.sin(lon * 3) - 0.08); if (lon > 1.2 && lon < 2.9) { const k = P.ss(0.03, 0.0, cy) * P.ss(1.2, 1.5, lon) * P.ss(2.9, 2.6, lon); col = mix(col, C[0], k * 0.7); } }
+          if (st === 'rocky' || st === 'patina') { const cy = Math.abs(y + 0.8 - 0.04 * Math.sin(lon * 3)); if (lon > 1.2 && lon < 2.9) { const k = P.ss(0.03, 0.0, cy) * P.ss(1.2, 1.5, lon) * P.ss(2.9, 2.6, lon); col = mix(col, C[4], k * 0.7); } }
           // big craters: dark floor, bright lit rim (light comes from the upper left)
           for (const c of craters) {
             const cx = Math.cos(c[1]) * Math.cos(c[0]), cyy = Math.sin(c[1]), cz = Math.cos(c[1]) * Math.sin(c[0]);
             const d = Math.hypot(x - cx, y - cyy, z - cz);
-            if (d < c[3] * 1.3) { const q = d / c[3]; if (q < 0.9) col = mix(col, C[0], 0.25 * (1 - q)); else col = mix(col, C[5], 0.35 * P.ss(1.25, 1.0, q) * P.ss(0.85, 1.0, q)); }
+            if (d < c[3] * 1.6) { const q = d / c[3] * (0.9 + 0.2 * n2); col = mix(col, C[4], 0.22 * P.ss(0.95, 0.4, q)); col = mix(col, C[0], 0.12 * P.ss(1.5, 1.05, q) * P.ss(0.85, 1.0, q) * (0.4 + n)); }
           }
         }
         // frayed, spiralling polar caps with broken-off islands (soft edges, no steps)
         if (job.caps) {
           const pa = Math.abs(sla);
           const spiral = Math.sin(lon * 3 + pa * 18 + (n2 - 0.5) * 6) * 0.02;
-          const edge = 0.9 + spiral + (n - 0.5) * 0.06;
+          const edge = 0.955 + spiral * 0.6 + (n - 0.5) * 0.04;
           const isl = P.ss(0.6, 0.66, n2) * P.ss(edge - 0.07, edge - 0.02, pa);
           const k = Math.max(P.ss(edge - 0.012, edge + 0.012, pa), isl * 0.85);
           if (k > 0) { const ice = mix([0.93, 0.95, 0.98], [0.82, 0.88, 0.95], P.ss(0.4, 0.7, n2)); col = mix(col, ice, k); }
@@ -78,7 +82,7 @@ const PlanetCore = {
         rgb[o * 3] = col[0] * 255; rgb[o * 3 + 1] = col[1] * 255; rgb[o * 3 + 2] = col[2] * 255;
         em[o] = e * 255;
         if (job.clouds > 0) {
-          const c = P.fbm(x * 3 + 21, y * 7 + 21, z * 3 + 21, s + 31, 5);
+          const c = P.fbm(x * 3 + 21, y * 7 + 21, z * 3 + 21, s + 31, 4);
           cl[o] = P.ss(0.62 - job.clouds * 0.2, 0.78 - job.clouds * 0.2, c) * 235;
         }
       }
@@ -110,6 +114,11 @@ const PlanetCore = {
         let uc = ((lonA + crot) / (Math.PI * 2)) % 1; if (uc < 0) uc += 1;
         const v = lat / Math.PI + 0.5;
         let r = samp(rgb, 3, 0, u, v), g = samp(rgb, 3, 1, u, v), b = samp(rgb, 3, 2, u, v);
+        if (job.detail) {
+          // fine surface grain on top of the texture (keeps large discs crisp)
+          const lo = u * Math.PI * 2, cl = Math.cos(lat), f = Math.max(40, R / 14), d3 = PlanetCore.fbm(cl * Math.cos(lo) * f, ny * f, cl * Math.sin(lo) * f, job.seed + 77, 3);
+          const k = 0.88 + d3 * 0.24; r *= k; g *= k; b *= k;
+        }
         const dot = nx * L[0] + ny * L[1] + nz * L[2];
         // soft terminator with a little scatter; night side keeps ~6 % cool fill light
         const lit = Math.max(0, Math.min(1, (dot + 0.18) / 0.72));
@@ -160,22 +169,29 @@ const PlanetView = {
       PlanetView.worker.onmessage = e => PlanetView.done(e.data);
     } catch (e) { PlanetView.worker = null; }
   },
-  params(planet) {
-    const sp = PlanetArt.spec(planet), r = h => Col.rgb(h).map(v => v / 255);
-    const style = sp.style;
+  params(planet, world) {
+    const sp = PlanetArt.spec(planet), style = sp.style;
+    const P = TerrainCore.params(planet, world || 1);
+    const r = h => Col.rgb(h).map(v => v / 255);
     const em = style === 'lava' ? [255, 110, 40] : style === 'dark' ? [140, 125, 255] : style === 'crystal' ? [200, 240, 255] : [255, 200, 120];
+    // C: dust, sand, crust, gravel, bedrock, salt/ice, accent, zone tint (the same materials as the ground)
+    const C = style === 'gas' ? [r(planet.ground[0]), r(planet.ground[1]), r(planet.ground[2]), r(planet.deco || planet.ground[2]), r(planet.rock), r('#f4ece2'), r(planet.accent), r(planet.deco || planet.accent)]
+      : [P.col[0], P.col[1], P.col[2], P.col[3], P.col[4], P.col[5], r(planet.accent), P.zones[0]];
     return {
-      texKey: planet.index + '|' + sp.seed, emc: em, sky: planet.sky || [200, 200, 255],
-      tex: { seed: sp.seed, style, caps: sp.caps || style === 'ice', clouds: sp.clouds, col: [r(planet.ground[0]), r(planet.ground[1]), r(planet.ground[2]), r(planet.deco || planet.ground[2]), r(planet.rock), r('#f4ece2'), r(planet.accent), r(planet.deco || planet.accent)], tw: 2048 }
+      texKey: planet.index + '|' + sp.seed, emc: em, sky: planet.sky || [200, 200, 255], seed: sp.seed,
+      tex: { seed: sp.seed, style, caps: sp.caps || style === 'ice', clouds: sp.clouds, col: C, tw: 2048 }
     };
   },
   // request a view of the disc (diameter D, visible rect) at rotation rot; cb(bitmap, rect)
-  request(planet, D, rect, rot, cb, lowRes) {
+  // latMax: lowest visible latitude (radians, screen-down positive); only those texture rows are generated
+  request(planet, D, rect, rot, cb, o = {}) {
     PlanetView.init();
-    const P = PlanetView.params(planet);
-    if (lowRes) P.tex.tw = 512;
-    const job = Object.assign({ id: ++PlanetView.seq, D, rx: Math.max(0, rect[0] | 0), ry: Math.max(0, rect[1] | 0), rot, crot: rot * 1.25 + 0.4 }, P);
-    job.texKey += '|' + P.tex.tw;
+    const P = PlanetView.params(planet, o.world);
+    P.tex.tw = o.tw || 2048;
+    const TH = P.tex.tw >> 1, lat = o.latMax === undefined ? Math.PI / 2 : o.latMax;
+    P.tex.j0 = 0; P.tex.j1 = Math.min(TH, Math.ceil((lat / Math.PI + 0.5) * (TH - 1)) + 3);
+    const job = Object.assign({ id: ++PlanetView.seq, D, rx: Math.max(0, rect[0] | 0), ry: Math.max(0, rect[1] | 0), rot, crot: rot * 2.2 + 0.4, detail: o.detail !== false }, P);
+    job.texKey += '|' + P.tex.tw + '|' + P.tex.j1;
     job.rw = Math.max(1, Math.min(D - job.rx, rect[2] | 0)); job.rh = Math.max(1, Math.min(D - job.ry, rect[3] | 0));
     if (!PlanetView.worker) return false;
     if (PlanetView.busy) { PlanetView.pending = [job, cb]; return true; }

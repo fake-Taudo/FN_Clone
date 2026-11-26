@@ -44,7 +44,8 @@ const Save = {
         events: r.events, eventTimer: r.eventTimer, contracts: r.contracts, contractTimer: r.contractTimer, contractSeq: r.contractSeq,
         produced: [...r.produced], salesLog: r.salesLog, tips: r.tips, pins: r.pins,
         scanCd: r.scanCd, probeCd: r.probeCd, probeTarget: r.probeTarget, kits: r.kits,
-        minedRun: r.minedRun, soldRun: r.soldRun, startShown: r.startShown
+        minedRun: r.minedRun, soldRun: r.soldRun, startShown: r.startShown,
+        landerSite: r.lander ? { x: r.lander.x, y: r.lander.y } : undefined, luckyRevealSeen: r.luckyRevealSeen || undefined
       },
       world: { disc: [...g.world.discovered.entries()], known: [...g.world.known] },
       buildings: bl,
@@ -112,6 +113,8 @@ const Save = {
     run.kits = Object.assign({}, r.kits || {});
     run.minedRun = Array.isArray(r.minedRun) ? r.minedRun : new Array(8).fill(0);
     run.soldRun = +r.soldRun || 0; run.startShown = !!r.startShown;
+    if (r.landerSite && isFinite(r.landerSite.x) && isFinite(r.landerSite.y)) run.lander = { x: Math.round(r.landerSite.x), y: Math.round(r.landerSite.y) };
+    run.luckyRevealSeen = !!r.luckyRevealSeen;
     if (o.world) {
       g.world.discovered = new Map(o.world.disc || []);
       g.world.known = new Set(o.world.known || []);

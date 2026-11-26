@@ -22,7 +22,9 @@ const MainLoop = {
     $('#title-version').textContent = 'Version ' + GAME_VERSION + ' · ' + CURRENCY_NAME;
     if (!Save.storage()) UI.toast('Hinweis: Speichern ist in diesem Browser nicht möglich. Du kannst trotzdem spielen.', 'bad', 6000);
     const hasSave = !!(Save.read(Save.KEY) || Save.read(Save.BACKUP));
+    // exactly one primary action: "Weiterspielen" with a save, otherwise "Neues Spiel"
     $('#btn-continue').classList.toggle('hidden', !hasSave);
+    $('#btn-new').classList.toggle('primary', !hasSave); $('#btn-new').classList.toggle('ghost', hasSave);
     $('#btn-continue').onclick = () => { Audio2.start(); MainLoop.continueGame(); };
     $('#btn-new').onclick = () => {
       Audio2.start();
@@ -30,8 +32,19 @@ const MainLoop = {
       else MainLoop.newGame();
     };
     $('#btn-title-settings').onclick = () => MainLoop.titleSettings();
-    FX.startTitle();
     requestAnimationFrame(MainLoop.frame);
+    // debug: ?intro=force plays the intro in a throw-away game (nothing is saved), ?intro=t:5.5 seeks and holds
+    const dbg = Intro.debugParam();
+    if (dbg) {
+      MainLoop.noSave = true;
+      const sm = /[?&]seed=(\d+)/.exec(location.search);
+      const meta = Game.createMeta(sm ? +sm[1] : undefined), g = Game.create(meta, 1);
+      TitleScene.start();
+      const go = () => { const m = /^t:([\d.]+)/.exec(dbg); Intro.begin(g, m ? { seek: +m[1], freeze: true } : {}); };
+      setTimeout(go, 60);
+      return;
+    }
+    TitleScene.start();
   },
 
   titleSettings() {
@@ -52,13 +65,21 @@ const MainLoop = {
   },
 
   newGame() {
+    if (MainLoop.starting) return;
+    MainLoop.starting = true;
     UI.closeModal();
     const meta = Game.createMeta();
     const g = Game.create(meta, 1);
-    MainLoop.hideTitle();
-    const go = () => { MainLoop.start(g, { fresh: true }); MainLoop.save(true); };
-    if (!App.settings.reducedFx) FX.sequence('land', g.world.planet, go); else go();
-    meta.introSeen = true;
+    // the cinematic starts from the title frame (push within the same frame as the click)
+    Intro.begin(g);
+  },
+  // handover after the intro: music, first save (without a toast for 30 s), then the lucky reveal
+  afterIntro(g) {
+    Audio2.setPlanet(g.run.planet);
+    MainLoop.quietUntil = performance.now() + 30000;
+    g.run.startShown = true;
+    MainLoop.save(true);
+    setTimeout(() => { if (App.g === g) Intro.reveal(g); }, 250);
   },
   continueGame() {
     const loaded = Save.load();
@@ -71,7 +92,7 @@ const MainLoop = {
     if (gap > CONFIG.offlineMin) MainLoop.offlineFor(gap);
     else if (gap > 0) MainLoop.catchup += gap;
   },
-  hideTitle() { $('#screen-title').classList.add('hidden'); cancelAnimationFrame(FX.titleLoop); },
+  hideTitle() { $('#screen-title').classList.add('hidden'); TitleScene.stop(); TitleScene.release(); },
 
   start(g, opts = {}) {
     App.g = g;
@@ -80,6 +101,8 @@ const MainLoop = {
     Build.exit();
     App.blueprint = null;
     Render.setPlanet(g.world.planet, g.world.seed);
+    Collide.extra = g.run.lander ? [LanderArt.hitbox(g.run.lander.x, g.run.lander.y)] : [];
+    Intro.rv = null;
     MapView.cellCache.clear();
     Render.particles.length = 0; Render.floating.length = 0; Render.edgeMarks.length = 0;
     App.cam.x = g.run.player.x; App.cam.y = g.run.player.y; App.cam.follow = true;
@@ -88,11 +111,13 @@ const MainLoop = {
     UI.updateCenterBtn();
     App.running = true;
     MainLoop.acc = 0; MainLoop.last = 0;
-    Audio2.setPlanet(g.run.planet);
     $('#planet-name').textContent = g.world.planet.name;
-    if (!g.run.startShown) { g.run.startShown = true; setTimeout(() => FX.luckyStart(g), 400); }
-    if (!g.meta.tutorial.done) setTimeout(() => Tutorial.start(), opts.fresh ? 1200 : 300);
-    else Tutorial.active = false;
+    Tutorial.active = false;
+    if (opts.intro) return;
+    Audio2.setPlanet(g.run.planet);
+    // queue: lucky reveal -> card -> tutorial (0.8 s after the card); never two overlays at once
+    if (!g.run.startShown) { g.run.startShown = true; setTimeout(() => { if (App.g === g) Intro.reveal(g); }, opts.fresh ? 700 : 400); }
+    else if (!g.meta.tutorial.done) setTimeout(() => { if (App.g === g) Tutorial.start(); }, opts.fresh ? 1200 : 300);
     if (App.debug.open) Debug.show();
   },
 
@@ -100,6 +125,7 @@ const MainLoop = {
   frame(ts) {
     requestAnimationFrame(MainLoop.frame);
     App.now = ts;
+    if (Intro.active) { Intro.frame(ts); MainLoop.last = ts; return; }
     const g = App.g;
     if (!g || !App.running) { MainLoop.last = ts; return; }
     let dt = MainLoop.last ? (ts - MainLoop.last) / 1000 : 0;
@@ -125,6 +151,7 @@ const MainLoop = {
     App.alpha = alpha;
     MainLoop.handleEvents(g);
     Tutorial.tick(g);
+    Intro.update(g, dt);
     Input.updateCamera(g, dt, alpha);
     Frame.draw(g, alpha, dt);
     UI.updateHud(dt);
@@ -213,14 +240,14 @@ const MainLoop = {
   // ---------------- saving ----------------
   save(manual) {
     const g = App.g;
-    if (!g || !App.running) return;
+    if (!g || !App.running || MainLoop.noSave) return;
     const dot = $('#save-dot');
     dot.className = 'save-dot saving';
     const res = Save.write(g, { lastSeen: Date.now(), camera: { zoom: App.cam.zoom } });
     setTimeout(() => { dot.className = 'save-dot ' + (res.ok ? 'saved' : 'error'); }, 150);
     dot.title = res.ok ? 'Gespeichert ' + new Date().toLocaleTimeString('de-DE') : res.err;
     if (!res.ok && !MainLoop.saveWarned) { MainLoop.saveWarned = true; UI.toast('Speichern fehlgeschlagen: ' + res.err + '. Du kannst weiterspielen, nutze den Export als Sicherung.', 'bad', 6000); }
-    if (res.ok && (manual || App.settings.autosaveToast)) UI.toast('Spiel gespeichert', 'good', 1500);
+    if (res.ok && (manual || App.settings.autosaveToast) && !(MainLoop.quietUntil > performance.now())) UI.toast('Spiel gespeichert', 'good', 1500);
   },
   onVisibility() {
     if (!App.g || !App.running) return;
@@ -283,6 +310,7 @@ const MainLoop = {
     if (!res) { UI.toast('Rebirth nicht möglich', 'bad'); return; }
     UI.closeModal();
     App.running = false;
+    MainLoop.quietUntil = 0;
     FX.sequence('rebirth', res.game.world.planet, () => {
       MainLoop.start(res.game, { fresh: true });
       UI.toast('Rebirth abgeschlossen: +' + res.gained + ' Rebirth-Punkte. Multiplikator ×' + Fmt.dec(res.game.mods.rebirthMult, 2), 'gold', 6000);
@@ -318,5 +346,5 @@ const MainLoop = {
 };
 
 // Small handle for automated tests and power users (read-only use recommended).
-window.__AO__ = { Art, ItemArt, FxLib, TerrainCore, TerrainSys, RockArt, BuildingArt, BeltArt, CharArt, DepositArt, DecorArt, PlanetArt: typeof PlanetArt !== 'undefined' ? PlanetArt : null, ALIEN_SPECIES, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
+window.__AO__ = { Art, ItemArt, FxLib, TerrainCore, TerrainSys, RockArt, LanderArt, PlanetCore, PlanetView, Intro, IntroAudio, TitleScene, BuildingArt, BeltArt, CharArt, DepositArt, DecorArt, PlanetArt: typeof PlanetArt !== 'undefined' ? PlanetArt : null, ALIEN_SPECIES, Draw, Sprites, FX, Col, Tutorial, App, Game, Grid, World, Build, UI, Render, Economy, Save, Offline, Progression, MainLoop, Menus, MapView, Bot, SelfTest, Actions, DATA, CONFIG };
 MainLoop.boot();

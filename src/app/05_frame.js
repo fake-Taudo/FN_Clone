@@ -132,6 +132,7 @@ const Frame = {
     for (let i = 0; i < ships.length; i += 2) { const b = ships[i], c = ships[i + 1]; CharArt.ship(ctx, c._wx - Render.ox, c._wy - Render.oy, c, tm, b); }
     mark('buildings');
     Render.drawParticles(ctx);
+    if (typeof Intro !== 'undefined') Intro.worldFx(ctx, g);
     Ground.clouds(ctx, Draw.tm);
     mark('chars+particles');
     // overlays
@@ -150,6 +151,7 @@ const Frame = {
     Render.drawFloating(ctx, dt);
     document.body.classList.toggle('lowq', App.quality === 'low');
     Frame.edgeMarkers(ctx, g);
+    if (typeof Intro !== 'undefined') Intro.overlay(ctx, g);
     mark('overlays+atmo');
   },
 

@@ -26,7 +26,7 @@ const App = {
   paused: false,
   settings: {
     sound: true, volume: 0.6, music: 0.35, reducedFx: false, quality: 'auto', numberFormat: 'short',
-    joySize: 1, joySide: 'left', dayNight: true, weather: true, autosaveToast: false, minimap: true, favorites: []
+    joySize: 1, joySide: 'left', dayNight: true, weather: true, noShake: false, autosaveToast: false, minimap: true, favorites: []
   },
   cam: { x: 0, y: 0, zoom: CONFIG.zoomDefault, follow: true, tx: 0, ty: 0 },
   view: { w: 0, h: 0, dpr: 1 },

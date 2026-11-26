@@ -54,6 +54,7 @@ const Sorter = {
   },
   // does a later-drawn sprite cover the player's body?
   covers(item, px, py) {
+    if (item.kind === 'lander') return px > item.x - 1.3 && px < item.x + 1.3 && py < item.key && py > item.y - 2.6;
     if (item.kind !== 'b' && item.kind !== 'part') return false;
     const b = item.b;
     if (item.kind === 'part') { const p = item.part; return px > b.x + p[0] - 0.2 && px < b.x + p[2] + 0.2 && py < b.y + p[4] && py > b.y - 3; }

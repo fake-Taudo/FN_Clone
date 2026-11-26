@@ -84,20 +84,30 @@
 </div>
 <div id="modal-root"></div>
 <div id="screen-title" class="screen">
-  <canvas id="title-bg"></canvas>
+  <canvas id="title-bg" aria-hidden="true"></canvas>
   <div class="title-inner">
-    <div class="title-logo"><span class="logo-mark big"></span></div>
-    <h1 id="title-name">Ares Outpost</h1>
-    <p class="title-sub">Ein Weltraum-Außenposten-Tycoon</p>
+    <svg class="title-mark" viewBox="0 0 96 50" aria-hidden="true">
+      <defs><linearGradient id="tmg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe2bd"/><stop offset="1" stop-color="#ff8a3d"/></linearGradient></defs>
+      <path d="M3 45 Q48 37 93 45" stroke="url(#tmg)" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M17 43 A17 17 0 0 1 51 43 Z" fill="url(#tmg)"/>
+      <path d="M23 43 v-6 a3 3 0 0 1 6 0 v6 Z" fill="#2a1712"/>
+      <path d="M36 31 h8" stroke="#2a1712" stroke-width="2" stroke-linecap="round" opacity=".55"/>
+      <path d="M62 43 V17" stroke="url(#tmg)" stroke-width="3" stroke-linecap="round"/>
+      <path d="M55 21 q8 -10 17 -2" stroke="url(#tmg)" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <circle cx="62" cy="13" r="2.6" fill="#ffe2bd"/>
+      <path d="M73 43 V27 l11 3.5 -11 3.5" stroke="url(#tmg)" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>
+    <h1 id="title-name" class="wordmark">Ares Outpost</h1>
+    <p class="title-sub">Baue deinen Außenposten auf fremden Planeten</p>
     <div class="title-buttons">
-      <button id="btn-continue" class="btn accent big hidden">Weiterspielen</button>
-      <button id="btn-new" class="btn big">Neues Spiel</button>
-      <button id="btn-title-settings" class="btn">Einstellungen</button>
+      <button id="btn-continue" class="tbtn primary hidden">Weiterspielen</button>
+      <button id="btn-new" class="tbtn primary">Neues Spiel</button>
+      <button id="btn-title-settings" class="tbtn ghost">Einstellungen</button>
     </div>
     <p class="title-version" id="title-version"></p>
   </div>
 </div>
-<div id="screen-fx" class="screen hidden"><canvas id="fx-canvas"></canvas><div class="fx-text"></div><button class="pill fx-skip">Überspringen</button></div>
+<div id="screen-fx" class="screen hidden"><canvas id="fx-canvas"></canvas><div class="fx-text"></div><button class="pill fx-skip" aria-label="Intro überspringen (Leertaste, Enter oder Esc)">Überspringen</button></div>
 <script>
 /*__JS__*/
 </script>
