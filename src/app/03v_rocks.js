@@ -40,10 +40,14 @@ const RockArt = {
       x.save(); x.rotate(wa); x.fillStyle = Col.rgba(Col.shade(dustCol, 0.1), 0.35); x.beginPath(); x.moveTo(w * 0.2, -h * 0.25); x.quadraticCurveTo(w * 2.4, 0, w * 0.2, h * 0.3); x.fill(); x.restore();
       x.fillStyle = 'rgba(0,0,0,.22)'; x.beginPath(); x.ellipse(0.02, h * 0.05, w * 0.95, h * 0.35, 0, 0, Math.PI * 2); x.fill();
     };
-    const bury = (w, h, top) => {
-      const g = x.createLinearGradient(0, top + h * 0.55, 0, h * 0.2);
-      g.addColorStop(0, Col.rgba(dustCol, 0)); g.addColorStop(1, Col.rgba(dustCol, 0.75));
-      x.fillStyle = g; x.fillRect(-w * 1.2, top + h * 0.5, w * 2.4, h);
+    // half-buried base: dust colour creeping up the rock, only inside its silhouette
+    const bury = (w, h, top, pts) => {
+      x.save();
+      if (pts) { Art.poly(x, pts); x.clip(); }
+      const g = x.createLinearGradient(0, top + h * 0.15, 0, h * 0.35);
+      g.addColorStop(0, Col.rgba(dustCol, 0)); g.addColorStop(1, Col.rgba(dustCol, 0.7));
+      x.fillStyle = g; x.fillRect(-w * 1.3, top, w * 2.6, h * 1.4);
+      x.restore();
     };
     if (kind === 'rock') {
       const col = RockArt.geoColor(geo), t = Art.tones(col);
@@ -72,7 +76,7 @@ const RockArt = {
         }
         if (P.style === 3) { x.fillStyle = 'rgba(240,250,255,.7)'; x.beginPath(); x.ellipse(-w * 0.1, -hh * 1.1, w * 0.6, hh * 0.25, 0, 0, Math.PI * 2); x.fill(); }
         if (P.style === 5 && geo !== 2) { x.fillStyle = 'rgba(100,190,110,.55)'; x.beginPath(); x.ellipse(w * 0.2, -hh * 1.0, w * 0.5, hh * 0.22, 0, 0, Math.PI * 2); x.fill(); }
-        bury(w, d, -hh * 0.2);
+        bury(w, d, -hh * 0.2, pts);
       }
     } else if (kind === 'pebbles') {
       const n = 4 + (v % 4);

@@ -66,9 +66,9 @@ const TerrainCore = {
     3: { name: 'glacia', dust: '#e6f0f8', sand: '#dbe9f4', crust: '#a6c8e2', gravel: '#90b0c8', bed: '#5e7ea0', salt: '#cdeafa', shadow: '#4a6a9a', zones: ['#c8dcf0', '#8ab0d0', '#e8f4ff', '#a0c0d8'], crater: 0.6, dune: 0.8, ridge: 1, mesa: 0.3, basin: 0.6, relief: 0.9, emis: 'ice' },
     4: { name: 'ignis', dust: '#4c4646', sand: '#3e3838', crust: '#322a26', gravel: '#3c2e28', bed: '#26201e', salt: '#8a7a3a', shadow: '#1a1218', zones: ['#40302a', '#2a2a30', '#4a3a30', '#382624'], crater: 0.9, dune: 0.7, ridge: 0.9, mesa: 0.6, basin: 0.4, relief: 1.1, emis: 'lava' },
     5: { name: 'viridia', dust: '#4e5e42', sand: '#6c5c7c', crust: '#42503a', gravel: '#5c4c68', bed: '#30293f', salt: '#4fd6a8', shadow: '#1e1830', zones: ['#5a7a48', '#5a4a72', '#3e5a4a', '#6a6a4a'], crater: 0.4, dune: 0.4, ridge: 0.8, mesa: 0.8, basin: 0.9, relief: 1, emis: 'bio' },
-    6: { name: 'nebulon', dust: '#352c54', sand: '#3c3062', crust: '#2c2448', gravel: '#2c2c4c', bed: '#1e1a3a', salt: '#4c4a80', shadow: '#120a24', zones: ['#3a2a6a', '#24305a', '#4a2a5a', '#2a2a4a'], crater: 0.5, dune: 0.3, ridge: 0.7, mesa: 0.9, basin: 0.7, relief: 0.8, emis: 'grid' },
+    6: { name: 'nebulon', dust: '#3c3262', sand: '#463a72', crust: '#2e2652', gravel: '#36365c', bed: '#221d42', salt: '#6058a4', shadow: '#140c2a', zones: ['#4a347e', '#2a3a6c', '#58326e', '#32325e'], crater: 0.6, dune: 0.3, ridge: 0.8, mesa: 1.0, basin: 0.7, relief: 1.0, emis: 'grid' },
     7: { name: 'crystallis', dust: '#e4dcf0', sand: '#d8d0e8', crust: '#c8bcd8', gravel: '#b8acd0', bed: '#9c8cba', salt: '#eaf6ff', shadow: '#7a6a9a', zones: ['#d0c4e8', '#c4e0f0', '#e8dcf0', '#b8b0d8'], crater: 0.6, dune: 0.5, ridge: 0.9, mesa: 0.6, basin: 0.8, relief: 1, emis: 'crystal' },
-    8: { name: 'singularis', dust: '#1c1c36', sand: '#22223e', crust: '#14142a', gravel: '#18182e', bed: '#0e0e20', salt: '#2a2a50', shadow: '#05050c', zones: ['#20163a', '#14143a', '#1a1030', '#101828'], crater: 0.7, dune: 0.3, ridge: 0.7, mesa: 0.5, basin: 0.6, relief: 0.9, emis: 'void' }
+    8: { name: 'singularis', dust: '#26264e', sand: '#2c2c56', crust: '#1b1b38', gravel: '#22223f', bed: '#14142c', salt: '#3a3a74', shadow: '#08081a', zones: ['#2c2050', '#1c1c4e', '#241840', '#162238'], crater: 0.9, dune: 0.3, ridge: 0.8, mesa: 0.6, basin: 0.6, relief: 1.0, emis: 'void' }
   },
   params(planet, seed) {
     const k = planet.index || 1;
@@ -88,6 +88,8 @@ const TerrainCore = {
       col: [r(pal.dust), r(pal.sand), r(pal.crust), r(pal.gravel), r(pal.bed), r(pal.salt)],
       shadow: r(pal.shadow), zones: pal.zones.map(r),
       crater: st.crater, dune: st.dune, ridge: st.ridge, mesa: st.mesa, basin: st.basin, relief: st.relief, emis: st.emis,
+      // dark grounds: multiplied shading is invisible on near-black albedo, so lit slopes get an additive light term
+      dark: (() => { const d = r(pal.dust); const L = 0.2126 * d[0] + 0.7152 * d[1] + 0.0722 * d[2]; return Math.max(0, Math.min(1, (0.3 - L) / 0.2)); })(),
       wind: (TerrainCore.hf(k, 3, 9) - 0.5) * 1.4 + 0.3,
       landing: [16, 16]
     };
@@ -329,7 +331,8 @@ const TerrainCore = {
         const ii = i - m, jj = j - m;
         if (ii < 0 || jj < 0) break;
         const rise = (H[jj * N + ii] - H[k]) * Z - m / GS * 1.414 * 0.9;
-        if (rise > 0) { sh = Math.min(sh, 1 - Math.min(1, rise * 2.2) * 0.4); }
+        // fades out toward the end of the march (no hard offset copy of a ridge edge)
+        if (rise > 0) { sh = Math.min(sh, 1 - Math.min(1, rise * 2.2) * 0.4 * (1 - (m - 1) / (PAD - 1))); }
       }
       const ao = Math.max(0.72, Math.min(1.06, 1 - lap * 0.35));
       SH[k] = Math.max(0.55, Math.min(1.45, lam)) * sh * ao;
@@ -399,7 +402,7 @@ const TerrainCore = {
     const rgba = new Uint8ClampedArray(PW * PW * 4);
     const hasEm = !!P.emis && P.emis !== 'ice';
     const emis = hasEm ? new Uint8ClampedArray(PW * PW * 4) : null;
-    const shR = P.shadow[0], shG = P.shadow[1], shB = P.shadow[2];
+    const shR = P.shadow[0], shG = P.shadow[1], shB = P.shadow[2], dk = P.dark || 0;
     const wa = P.wind, wcx = Math.cos(wa), wcy = Math.sin(wa);
     const cell = new Float64Array(1);
     const detail = res >= 8;
@@ -437,7 +440,7 @@ const TerrainCore = {
             const sc = 0.75 + 1.1 * T.ss(-0.5, 0.5, T.gn(wx / 40, wy / 40, P.seed + 77));
             const d = T.worley(wx / sc, wy / sc, P.seed + 62, cell);
             const crack = (1 - T.ss(0.012, 0.06, d)) * cm * (fine ? 1 : 0.45);
-            val -= wC * crack * 0.22;
+            val -= wC * crack * 0.15;
             val += wC * ((cell[0] & 255) / 255 - 0.5) * 0.07 * cm;
             if (st === 3) { val += wC * crack * 0.55; lit += wC * T.ss(0.06, 0.1, d) * 0.03; }
           }
@@ -483,7 +486,18 @@ const TerrainCore = {
             }
           }
           // planet detail
-          if (st === 6) { const gl = Math.min(Math.abs(((wx + 2) % 4 + 4) % 4 - 2), Math.abs(((wy + 2) % 4 + 4) % 4 - 2)); if (gl > 1.93 && T.gn(wx / 9, wy / 9, P.seed + 70) > -0.2) { em += 0.85; val += 0.15; } else if (gl > 1.9) val -= 0.08; }
+          if (st === 6) {
+            // platform plates (4 x 4 tiles) with individual tones, dark seams and a lit upper-left edge; neon lines glow at night
+            const pm = T.gn(wx / 9, wy / 9, P.seed + 70), plat = T.ss(-0.35, -0.1, pm);
+            const ux = ((wx + 2) % 4 + 4) % 4, uy = ((wy + 2) % 4 + 4) % 4, gl = Math.min(Math.abs(ux - 2), Math.abs(uy - 2));
+            if (plat > 0) {
+              const cid = T.hf(Math.floor((wx + 2) / 4), Math.floor((wy + 2) / 4), P.seed + 79);
+              val += (cid - 0.5) * 0.16 * plat;
+              if (gl > 1.93) { if (pm > -0.2) em += 0.85; val += 0.12; }
+              else if (gl > 1.84) { val -= 0.14 * plat; }
+              else if (ux < 0.2 || uy < 0.2) lit += 0.12 * plat;
+            } else if (gl > 1.9) val -= 0.05;
+          }
           if (st === 8) { const sp = T.hf(Math.floor(wx * 7), Math.floor(wy * 7), P.seed + 71); if (sp > 0.994) { em += 0.9; val += 0.6; } const rr2 = T.gn(wx / 40, wy / 40, P.seed + 72); lit += 0.05 * Math.sin(rr2 * 40); }
           if (st === 7 && wC > 0.2) { T.worley(wx / 1.1, wy / 1.1, P.seed + 73, cell); lit += ((cell[0] & 255) / 255 - 0.5) * 0.2 * wC; if (T.hf(Math.floor(wx * 8), Math.floor(wy * 8), P.seed + 74) > 0.993) em += 0.6; }
           if (st === 5) { const moss = T.fbm(wx / 6, wy / 6, P.seed + 75, 2); if (moss > 0.2) { const mk = T.ss(0.2, 0.45, moss) * (1 - wS); val += (T.hf(Math.floor(wx * 6), Math.floor(wy * 6), P.seed + 76) - 0.5) * 0.25 * mk; } }
@@ -493,7 +507,7 @@ const TerrainCore = {
         // shading with cool violet-brown shadows (never black) and warm light
         let lr, lg, lb;
         if (sh < 1) { const t = 1 - sh; lr = r * sh + shR * t * 0.55; lg = g * sh + shG * t * 0.55; lb = b * sh + shB * t * 0.55; }
-        else { const t = sh - 1; lr = r * (1 + t * 0.95); lg = g * (1 + t * 0.85); lb = b * (1 + t * 0.7); }
+        else { const t = sh - 1; lr = r * (1 + t * 0.95) + t * dk * 0.34; lg = g * (1 + t * 0.85) + t * dk * 0.3; lb = b * (1 + t * 0.7) + t * dk * 0.38; }
         const o4 = (py * PW + px) * 4;
         rgba[o4] = lr * 255; rgba[o4 + 1] = lg * 255; rgba[o4 + 2] = lb * 255; rgba[o4 + 3] = 255;
         if (emis && em > 0.02) {
@@ -547,6 +561,17 @@ const TerrainCore = {
       const dens = 0.35 + A[a + 2] + A[a + 3] * 0.8 + W[k * 6 + 4] * 0.7 + W[k * 6 + 3] * 0.6 - W[k * 6 + 1] * 0.9 - A[a + 5] * 0.5;
       if (rnd() > dens * 0.6 || nearDep(x, y)) continue;
       out.push([rnd() < 0.5 ? 'pebbles' : 'rock', Math.floor(rnd() * 6), x, y, rnd() < 0.85 ? 0 : 1, geo(k), 0]);
+    }
+    // floor scatter: every 8 x 8 block carries at least one small detail (no empty 400 px windows)
+    for (let by = 0; by < S; by += 8) for (let bx = 0; bx < S; bx += 8) {
+      const r2 = T.rng(T.hi(cx * 4 + bx / 8 + 911, cy * 4 + by / 8 - 377, P.seed + 8201));
+      const m = 1 + (r2() < 0.5 ? 1 : 0);
+      for (let i = 0; i < m; i++) {
+        const x = x0 + bx + 0.5 + r2() * 7, y = y0 + by + 0.5 + r2() * 7;
+        if (nearDep(x, y)) continue;
+        const k = at(x, y), dune = W[k * 6 + 1];
+        out.push([dune > 0.5 || r2() < 0.6 ? 'pebbles' : 'rock', Math.floor(r2() * 6), x, y, 0, geo(k), 0]);
+      }
     }
     // planet props
     const pr = { 2: 'patina', 3: 'ice', 4: 'lavarock', 5: 'flora', 6: 'pylon', 7: 'crystal', 8: 'voidshard' }[P.style];

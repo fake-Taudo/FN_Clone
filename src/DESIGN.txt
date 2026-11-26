@@ -230,3 +230,130 @@ alt/neu; JS = Zeit pro Frame im Hauptthread)
   je höchstens 11 Mio. Pixel (Touch 6 Mio.), LRU-verdrängt.
 - Regression: alter Spielstand (große Basis) lädt, Offline-Ertrag, Rebirth und
   Import/Export laufen, alle eingebauten Selbsttests grün.
+
+=====================================================================
+TERRAIN-ENTSCHEIDUNGEN (Map-Detailtiefe, Hitboxen, Intro)
+=====================================================================
+Grundsatz
+- Gelände ist rein optisch: es blockiert nie, verändert keine Vorkommen, Seltenheiten,
+  Glücksstarts, Kundenraten, Preise oder Offline-Werte. Gleicher Seed -> gleiche
+  Vorkommen und gleicher Glücksstart (20-Seed-Vergleich gegen den Stand davor).
+- Eigene Zufallsströme je Zweck und Zelle (Seed + Zweck + Chunk/Zelle); kein
+  Math.random im Gelände. Gleicher Chunk -> bytegleiches Bild, egal in welcher
+  Reihenfolge gebacken wird.
+
+Pipeline (src/app/03t_terrain.js, rein funktional, läuft im Worker)
+- Höhenfeld in Weltkoordinaten (nahtlos über Chunkgrenzen): Makro-fBm mit
+  Domain-Warp, Meso-Hügel, Grate (ridged noise), Tafelberge mit Terrassen, Becken,
+  Mikrorelief. Darauf Kraterstempel als Höhenänderung (Schüssel, Wall, Auswurf),
+  nicht als Farbstempel.
+- Abgeleitete Felder: Hangneigung, Krümmung (AO), Dünenkämme, Kraterwall,
+  Schüsselinneres, Mineralhof, Landmarken-Material.
+- 6 Materialien mit weichem Splat: Staub, Sand, Kruste, Kies, Fels, Salz/Mineral;
+  dazu 4 regionale Farbzonen je Planet. Sättigung gegenüber vorher gesenkt (Ares:
+  rostbraun statt Signalorange), Schatten kühl violett-braun, nie schwarz.
+- Licht: Hillshade mit Sonne links oben (Azimut 315°, Höhe 40°), weicher
+  Schattenwurf durch Marsch zur Sonne, Umgebungsverdeckung aus der Krümmung.
+  Entscheidung Sonnenwinkel: ein fester Winkel, gleich wie Gebäude, Figuren,
+  Planet im Titel und Lander; ein wandernder Sonnenstand hätte die Schatten der
+  gebackenen Chunks gegen die Gebäudeschatten laufen lassen. Tageszeit wirkt über
+  Farbgrading und Nachtlichter.
+- Dunkle Böden (Nebulon, Singularis, teils Ignis): Multiplikatives Licht ist auf
+  fast schwarzer Albedo unsichtbar, darum bekommen sonnenzugewandte Hänge einen
+  additiven Lichtanteil (Faktor aus der Bodenhelligkeit) und die Paletten sind
+  heller und weiter gespreizt.
+
+Krater
+- 8 Profile x 3 Größen, Altersstufen frisch / reif / alt / Geist; Größen nach
+  Potenzgesetz (viele kleine, wenige große), Ketten, Sekundärfelder um große
+  Krater, Einschlagbecken als Landmarke. Junge Krater schneiden alte (Höhen werden
+  gemischt, kein Ring-über-Ring). Auswurf unregelmäßig mit Strahlen, Felsen nur
+  dort, wo die Dichte es will, nie in Ringen.
+
+Dünen & Wind
+- Querdünen, Sicheldünen, Längsdünen, Sterndünen je nach Region; asymmetrisch
+  (flache Luv-, steile Leeseite), Rippel quer zum Wind, regionale Windrichtung je
+  Planet, Dünenfelder mit organischen Rändern statt Chunkkanten, Windschatten
+  hinter Felsen und Tafelbergen.
+
+Felsen & Requisiten (src/app/03v_rocks.js)
+- 4 Größen x 6 Formen (24+), dreitönige Facetten mit Licht links oben, Kontakt-
+  schatten, Staubkante, teilweise eingesunken; Kiesel, Cluster nach Dichtefeld
+  (Poisson-artig), Grundstreuung je 8x8-Feld, damit kein 400-px-Fenster leer ist.
+  Planetenrequisiten: Patina, Eis, Lavagestein, Flora, Pylone, Kristalle,
+  Leerensplitter; Wracks und Easter Eggs (Sonde, alter Rover, Antenne, Solartrümmer,
+  Flagge, Landerreste).
+
+Landmarken & Spuren
+- Becken, trockene Flussläufe/Deltas, Canyonnarbe, Tafelbergfelder, Staubteufel-
+  spuren, Kraterketten, Wracks; Mineralhöfe um seltene Vorkommen. Landmarken
+  erscheinen nach Entdeckung als Symbol auf der Minikarte.
+- Vorkommen sind verankert: abgeflachtes Plateau, Kontaktschatten, Kies-/Staub-
+  rand, Verfärbung (Aussehen der Vorkommen selbst unverändert).
+- Fußspuren links/rechts (20-40 s, auf Staub schneller verweht), Rover- und
+  Alienspuren, Trampelpfade als Abnutzungskarte je Chunk, Baustellenboden und
+  Fundamentzonen unter Gebäuden.
+
+Atmosphäre
+- Höhendunst beim Herauszoomen, weiche Wolkenschatten (<= 8 %), Staubteufel,
+  Sanddrift, Vignette; Nacht mit Emission aus dem Gelände (Lavaadern, Neonfugen,
+  Biolumineszenz, Funkeln, Leerenpunkte).
+
+Technik (src/app/03u_terrainsys.js)
+- Bis zu 2 Web Worker aus dem eigenen Quelltext (Blob-URL), Ergebnis als
+  ImageBitmap; ohne Worker 2-ms-Zeitscheiben im Hauptthread.
+- 4 Detailstufen (4/10/20/34 px pro Feld), grobe Stufe zuerst, Überblendung
+  180 ms, Vorausladen in Laufrichtung, LRU-Budget 190 MB (Touch 110 MB).
+- Bis 24 px pro Feld werden Felsen in das Chunkbild komponiert, darüber live und
+  scharf gezeichnet.
+
+Tiefensortierung & Hitboxen (src/app/04d_sort.js, src/core/04c_collide.js)
+- CONFIG.collision je Typ: none / footprint (Einzug 0,1) / custom. Bänder,
+  Brücken, Splitter, Merger, Kreuzungen, Wege, Lampen, Flaggen, Leuchtfeuer, Zäune
+  begehbar; Basar nur Körper, Kundenstreifen vorne frei und mit der Drehung
+  wandernd; Karawane, Shuttle-Pad, Hafen, Dock: nur massive Teile.
+- Sortierung nach Fußlinie, große Stationen in Bodenplatte + hohe Teile zerlegt,
+  Röntgen-Ausblendung (40-55 %, 150 ms) wenn der Astronaut verdeckt ist.
+- Spieler als Kreis r 0,28 (Rover 0,45), Gleiten an Kanten, Teilschritte,
+  Räumliche Abfrage über das Belegungsraster. Wird auf den Spieler gebaut, wird er
+  sanft herausgeschoben; nach 1,5 s Feststecken Befreiung mit Hinweis.
+  Landezonen schieben weich weg (Hupe + Markierung). Kundenwege per A* um
+  Hitboxen (Alienpfade bevorzugt), sonst erscheinen Kunden am Stand.
+- Wirkt nur auf Bewegung. Einkommen identisch (siehe Messwerte).
+
+Intro (src/app/15_intro.js, 14b_planetcore.js, 14c_lander.js)
+- Läuft nur bei einem echten neuen Spiel. Weiterspielen/Neuladen zeigen es nie.
+  Spielstände bekommen nur optionale Felder (introSeen, luckyRevealSeen,
+  landerSite); alte Stände laden unverändert. Simulation pausiert während des
+  Intros; Glücksstart-Ergebnis und Seeds bleiben unberührt.
+- Titel: Wortmarke ARES OUTPOST mit warmem Verlauf, Außenposten-Piktogramm (kein
+  Saturn-Symbol), eine Primärtaste (orange, >= 56 x 280 px), Ghost-Tasten,
+  Planet unter dem Textblock (nie überlappend), >= 1,5-fache Breite bzw. 2048 px,
+  im Worker gebacken (Vorstufe 1024, dann 2048 + Feinkorn), dreht ~4°/min,
+  Wolkendrift, 3 Sternebenen (> 400 Sterne), Parallaxe <= 6 px, Satellit alle
+  20-40 s, Atmosphäre dreilagig (dünner Rand 1,5-3 % des Radius, sonnenseitig
+  heller). Reduzierte Bewegung: statisch.
+- Shots: Orbit (0-3 s) -> Eintritt mit Plasma, Wolkenbänken, Ortskarte (3-5,5 s)
+  -> Wolkenübergang ohne Weißblitz -> Anflug über die echte Spielwelt, Zoom
+  0,1x -> 1x, Dunst, Lander 1,6x -> 1x, Schatten nach Höhe, Triebwerkslicht
+  (5,5-9,5 s) -> Aufsetzen mit Federung, Kamerastoß 3 px, Luftring, Staub (3
+  Lichtebenen) und Kiesel, Brandfleck mit Beinabdrücken (9,5-11 s) -> Luke,
+  Rampe, Astronaut läuft zur unveränderten Startposition, gestaffeltes HUD
+  (11-15 s). Gesamt 15 s, reduziert 5,5 s.
+- Versorgungslander ARES-01 im Gebäudestil (Paneele, Nieten, Warnstreifen,
+  Antenne, Ruß, orangefarbener Akzent), 4 Teleskopbeine, 3 Düsen, Nutzlastmodul,
+  Solarflügel; Seitenprofil und 2.5D-Draufsicht; Flamme dreilagig mit Schock-
+  diamanten. Bleibt als Landmarke 3-5 Felder vom Start (eigener Zufallsstrom,
+  nie auf Vorkommen), Rumpfkern 2 x 2 blockiert und ist in der Bauvorschau belegt.
+- Glücksstart in der Welt: Scan-Ring vom Lander, Vorkommen leuchtet in
+  Seltenheitsfarbe, Lichtsäule und Funken ab "Gut", Kamerafahrt 1,0 s / 1,2 s /
+  0,8 s (jede Eingabe gibt die Kamera sofort zurück), Markierung mit Pfeil und
+  Entfernung in Schritten bis 6 Felder oder 90 s, nicht-modale Karte, danach nach
+  0,8 s das Tutorial. Nie zwei Overlays gleichzeitig; Speicher-Toast 30 s stumm.
+- Ton: prozedural, auf der AudioContext-Uhr geplant, Begrenzer, folgt Stummschaltung.
+- Überspringen ab Sekunde 0 (>= 44 x 44, Leertaste/Enter/Esc; nach dem Aufsetzen
+  übernimmt jede Eingabe) endet im identischen Zustand. Einstellungen:
+  "Kamerawackeln aus", "Intro erneut ansehen". Rebirth-Sequenz auf 8 s gekürzt,
+  Austrittsblitz durch weiches Leuchten (< 10 % je 0,2 s) ersetzt.
+- Debug: ?intro=force (Wegwerfspiel, nichts wird gespeichert), ?intro=t:5.5
+  (springt und hält), &seed=N.

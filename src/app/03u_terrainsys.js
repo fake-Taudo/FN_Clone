@@ -124,11 +124,17 @@ const TerrainSys = {
   evict() {
     if (TerrainSys.bytes <= TerrainSys.budget()) return;
     const arr = [...TerrainSys.cache.entries()].sort((a, b) => a[1].used - b[1].used);
+    const dead = [];
     for (const [k, e] of arr) {
       if (TerrainSys.bytes <= TerrainSys.budget() * 0.8 || e.used >= App.frame - 2) break;
       TerrainSys.cache.delete(k); TerrainSys.bytes -= e.bytes + (e.comp ? e.comp.width * e.comp.height * 4 : 0);
-      if (e.img && e.img.close) e.img.close();
+      e.dead = true; dead.push(e);
     }
+    if (!dead.length) return;
+    // drop every cross-fade that still points at an evicted image, then release the bitmaps
+    for (const [k, st] of TerrainSys.shown) if (st.e.dead || (st.from && st.from.dead)) TerrainSys.shown.delete(k);
+    if (TerrainSys.visible) TerrainSys.visible = TerrainSys.visible.filter(e => !e.dead);
+    for (const e of dead) { if (e.img && e.img.close) e.img.close(); if (e.em && e.em.close) e.em.close(); e.comp = null; }
   },
   // best available image for a chunk: exact level, else the nearest other level
   best(cx, cy, L) {
