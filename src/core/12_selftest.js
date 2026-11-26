@@ -97,6 +97,20 @@ const SelfTest = {
       Actions.redo(g2);
       return { ok: n1 === n0 + 2 && n2 === n0 && Math.abs(m2 - m0) < 1e-6 && g2.buildings.size === n1, info: n0 + ' → ' + n1 + ' → ' + n2 + ' → ' + g2.buildings.size };
     });
+    test('Merger verteilt fair auf 3 Eingänge', () => {
+      const g = Game.create(Game.createMeta(5), 1); g.run.money = 1e12;
+      const P = sp => Grid.place(g, sp, { ignoreRadius: true, free: true });
+      const MX = 60, MY = 60;
+      P({ type: 'merger', x: MX, y: MY, rot: 0 });
+      for (let i = 1; i <= 4; i++) { P({ type: 'belt', x: MX - i, y: MY, rot: 0 }); P({ type: 'belt', x: MX, y: MY - i, rot: 1 }); P({ type: 'belt', x: MX, y: MY + i, rot: 3 }); }
+      for (let i = 1; i <= 6; i++) P({ type: 'belt', x: MX + i, y: MY, rot: 0 });
+      const silo = P({ type: 'silo', x: MX + 7, y: MY, rot: 0 });
+      Game.recompute(g);
+      const feeds = [[MX - 4, MY, 0, 0], [MX, MY - 4, 1, 1], [MX, MY + 4, 3, 2]];
+      for (let t = 0; t < 2400; t++) { for (const [x, y, d, r] of feeds) { const it = Items.make(r, 0); if (!Logistics.insert(g, x, y, d, it)) Items.free(it); } Game.tick(g); g.events.length = 0; }
+      const n = [0, 4, 8].map(k => silo.store.get(k) || 0), lo = Math.min(...n), hi = Math.max(...n);
+      return { ok: lo > 0 && hi - lo <= Math.max(2, hi * 0.05), info: 'West/Nord/Süd ' + n.join('/') };
+    });
     return out;
   },
 

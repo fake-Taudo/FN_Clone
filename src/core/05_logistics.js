@@ -28,8 +28,22 @@ const Logistics = {
       }
       case 'splitter': case 'fsplitter': case 'osplitter':
         return dir === b.rot && b.buf.length < 2;
-      case 'merger':
-        return dir !== ((b.rot + 2) & 3) && b.buf.length < 2;
+      case 'merger': {
+        if (dir === ((b.rot + 2) & 3)) return false;
+        // fair round robin: every waiting input registers itself; free space goes to the
+        // next waiting input after the one served last (otherwise the update order of the
+        // belts decides and one or two inputs starve the others)
+        const req = b.req || (b.req = [-9, -9, -9, -9]);
+        req[dir] = g.tick;
+        if (b.buf.length >= 2) return false;
+        for (let k = 1; k <= 4; k++) {
+          const d = (b.lastSide + k + 4) & 3;
+          if (d === ((b.rot + 2) & 3)) continue;
+          if (d === dir) return true;
+          if (g.tick - req[d] <= 1) return false;
+        }
+        return true;
+      }
       case 'crossing': { const l = b.lanes[dir]; return !l || l.length < 2; }
       case 'bridge': {
         if (dir !== b.rot || tx !== b.x || ty !== b.y) return false;
